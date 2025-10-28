@@ -1,0 +1,19 @@
+[project]
+name = "enhanced-mcp-materials"
+version = "0.1.0"
+description = "Enhanced MCP Materials Project server with advanced features"
+dependencies = [
+    "mcp>=1.0.0",
+    "mp-api>=0.41.2",
+    "pymatgen>=2024.10.3",
+    "plotly>=5.0.0",
+    "matplotlib>=3.5.0",
+    "ase>=3.22.0"
+]
+
+[project.scripts]
+enhanced-mcp-materials = "enhanced_mcp_materials.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
