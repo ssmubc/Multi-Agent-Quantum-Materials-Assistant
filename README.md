@@ -10,12 +10,13 @@ A Streamlit application for testing and comparing different Large Language Model
 
 ## Features
 
-- **5 LLM Models Support:**
+- **6 LLM Models Support:**
   - **Nova Pro** (us-east-1) - Amazon's latest multimodal model
   - **Llama 4 Scout 17B** (us-east-1) - Meta's latest instruction-tuned model  
   - **Llama 3 70B** (us-west-2) - Meta's powerful 70B parameter model
   - **OpenAI GPT OSS** (us-west-2) - OpenAI's open-source model
   - **Qwen 3-32B** (us-east-1) - Alibaba's advanced reasoning model
+  - **DeepSeek R1** (us-east-1) - DeepSeek's reasoning-focused model
 
 - **Materials Project Integration:**
   - Automatic material property lookup
@@ -159,6 +160,7 @@ app.py                          # Main Streamlit application
 | Llama 3 70B | us-west-2 | `meta.llama3-70b-instruct-v1:0` | High quality, detailed |
 | OpenAI GPT | us-west-2 | `openai.gpt-oss-20b-1:0` | Alternative approach |
 | Qwen 3-32B | us-east-1 | `qwen.qwen3-32b-v1:0` | Advanced reasoning, structured output |
+| DeepSeek R1 | us-east-1 | `deepseek.deepseek-r1-distill-qwen-32b-v1:0` | Reasoning and problem-solving |
 
 ## Troubleshooting
 
@@ -220,9 +222,35 @@ eb init quantum-matter-app --platform docker --region us-east-1
 eb create quantum-matter-env --instance-types t3.medium
 eb deploy
 
-# 3. Get URL
+# 3. Configure SSL Certificate (Optional)
+eb setenv SSL_CERT_ARN=your_certificate_arn_here
+
+# 4. Get URL
 eb status
 ```
+
+### SSL/HTTPS Configuration
+
+To enable HTTPS for your deployment:
+
+1. **Create SSL Certificate in AWS Certificate Manager:**
+   - Go to AWS Console → Certificate Manager
+   - Request a public certificate for your domain
+   - Complete domain validation
+
+2. **Configure SSL in Elastic Beanstalk:**
+   ```bash
+   # Set the certificate ARN as environment variable
+   eb setenv SSL_CERT_ARN=arn:aws:acm:region:account:certificate/cert-id
+   
+   # Deploy the configuration
+   eb deploy
+   ```
+
+3. **Verify HTTPS Access:**
+   - Your app will be available at both HTTP and HTTPS URLs
+   - HTTPS: `https://your-app-name.elasticbeanstalk.com`
+   - HTTP: `http://your-app-name.elasticbeanstalk.com`
 
 ## Support
 
