@@ -160,7 +160,7 @@ app.py                          # Main Streamlit application
 | Llama 3 70B | us-west-2 | `meta.llama3-70b-instruct-v1:0` | High quality, detailed |
 | OpenAI GPT | us-west-2 | `openai.gpt-oss-20b-1:0` | Alternative approach |
 | Qwen 3-32B | us-east-1 | `qwen.qwen3-32b-v1:0` | Advanced reasoning, structured output |
-| DeepSeek R1 | us-east-1 | `deepseek.deepseek-r1-distill-qwen-32b-v1:0` | Reasoning and problem-solving |
+| DeepSeek R1 | us-east-1 | `us.deepseek.r1-v1:0` | Reasoning and problem-solving |
 
 ## Troubleshooting
 
