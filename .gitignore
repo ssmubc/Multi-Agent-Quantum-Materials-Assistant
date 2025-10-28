@@ -1,3 +1,10 @@
+# Environment variables (actual secrets)
+.env
+.env.local
+.env.production
+
+# Note: .env.example and .env.template are templates and should be committed
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,28 +32,6 @@ venv/
 env/
 ENV/
 .venv/
-.env/
-
-# Jupyter Notebooks (exclude your uploaded notebooks)
-*.ipynb
-.ipynb_checkpoints/
-
-# Old requirements files
-requirements (3).txt
-
-# Documentation with sensitive patterns
-AWS_Authentication_Pattern.md
-
-# AWS credentials and secrets
-.aws/
-*.pem
-*.key
-config.json
-secrets.json
-
-# Materials Project API keys
-mp_api_key.txt
-.env.local
 
 # IDE
 .vscode/
@@ -58,9 +43,56 @@ mp_api_key.txt
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+
+# AWS credentials (if accidentally created)
+.aws/
+credentials
+
 # Streamlit
 .streamlit/secrets.toml
 
-# Logs
-*.log
-logs/
+# SSL certificates and keys
+*.key
+*.crt
+*.pem
+server*.key
+server*.crt
+
+# Local development
+.elasticbeanstalk/
+elastic_beanstalk_zipfiles/
+vs_buildtools.exe
+
+# Jupyter notebooks
+*.ipynb
+
+# Test files
+test_*.py
+verify_*.py
+
+# SSL setup scripts
+create_cert*.py
+setup_ssl.py
+import_cert_to_acm.py
+
+# Cognito auth files (deprecated)
+app_cognito.py
+auth/
+
+# Unused MCP implementations
+MaterialProjectMCP/
+simple_mcp_materials/
+utils/simple_mcp_client.py
+utils/mcp_materials_client.py
+
+# Alternative app versions (unused)
+app_simple.py
+app_with_auth.py
+
+# Development files
+requirements (3).txt
+sagemaker_analysis.md
+deepseek_generator_fixed.py
+install_mcp.py
