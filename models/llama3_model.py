@@ -29,7 +29,7 @@ class Llama3Model(BaseQiskitGenerator):
         if not self.llm_enabled or not self.bedrock_client:
             raise RuntimeError("Llama 3 70B not initialized")
         
-        # Llama 3 request format
+        # Llama 3 request format - prompt already contains system instructions
         request_body = {
             "prompt": prompt,
             "temperature": kwargs.get("temperature", 0.7),

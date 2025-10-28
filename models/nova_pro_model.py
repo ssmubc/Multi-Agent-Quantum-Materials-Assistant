@@ -29,7 +29,7 @@ class NovaProModel(BaseQiskitGenerator):
         if not self.llm_enabled or not self.bedrock_client:
             raise RuntimeError("Nova Pro not initialized")
         
-        # Nova Pro request format
+        # Nova Pro request format - prompt already contains system instructions
         request_body = {
             "messages": [
                 {

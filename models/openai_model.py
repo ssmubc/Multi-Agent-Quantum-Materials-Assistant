@@ -29,13 +29,14 @@ class OpenAIModel(BaseQiskitGenerator):
         if not self.llm_enabled or not self.bedrock_client:
             raise RuntimeError("OpenAI GPT OSS not initialized")
         
-        # OpenAI GPT OSS request format
+        # OpenAI GPT OSS request format - prompt already contains system instructions
         request_body = {
-            "prompt": prompt,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
             "temperature": kwargs.get("temperature", 0.7),
             "max_tokens": kwargs.get("max_tokens", 1000),
-            "top_p": kwargs.get("top_p", 0.9),
-            "stop": ["Human:", "Assistant:"]
+            "top_p": kwargs.get("top_p", 0.9)
         }
         
         try:
@@ -49,7 +50,11 @@ class OpenAIModel(BaseQiskitGenerator):
             
             # Extract text from OpenAI response
             if "choices" in response_body and len(response_body["choices"]) > 0:
-                return response_body["choices"][0].get("text", "")
+                choice = response_body["choices"][0]
+                if "message" in choice:
+                    return choice["message"].get("content", "")
+                else:
+                    return choice.get("text", "")
             elif "completion" in response_body:
                 return response_body["completion"]
             elif "generated_text" in response_body:

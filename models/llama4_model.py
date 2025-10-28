@@ -29,7 +29,7 @@ class Llama4Model(BaseQiskitGenerator):
         if not self.llm_enabled or not self.bedrock_client:
             raise RuntimeError("Llama 4 Scout not initialized")
         
-        # Llama 4 request format
+        # Llama 4 request format - prompt already contains system instructions
         request_body = {
             "prompt": prompt,
             "temperature": kwargs.get("temperature", 0.7),
