@@ -57,6 +57,39 @@ class BaseQiskitGenerator(ABC):
             s = "_" + s
         return s.lower()
     
+    def _extract_formula_from_poscar(self, poscar_text: str) -> str:
+        """Extract chemical formula from POSCAR structure"""
+        try:
+            lines = poscar_text.strip().split('\n')
+            # Look for element line (usually first line or after lattice vectors)
+            for i, line in enumerate(lines[:10]):
+                line = line.strip()
+                # Check if line contains element symbols
+                if re.match(r'^[A-Z][a-z]?(?:\s+[A-Z][a-z]?)*$', line):
+                    elements = line.split()
+                    # Get counts from next line if available
+                    if i + 1 < len(lines):
+                        count_line = lines[i + 1].strip()
+                        if re.match(r'^\d+(?:\s+\d+)*$', count_line):
+                            counts = count_line.split()
+                            if len(elements) == len(counts):
+                                formula_parts = []
+                                for elem, count in zip(elements, counts):
+                                    if count == '1':
+                                        formula_parts.append(elem)
+                                    else:
+                                        formula_parts.append(f"{elem}{count}")
+                                return ''.join(formula_parts)
+                    # Fallback: just return first element
+                    return elements[0]
+            # If no clear element line found, try first line
+            first_line = lines[0].strip()
+            if re.match(r'^[A-Z][a-z]?', first_line):
+                return re.match(r'^[A-Z][a-z]?', first_line).group(0)
+            return "Si"  # Default fallback
+        except Exception:
+            return "Si"
+    
     def _is_small_molecule(self, formula: str) -> bool:
         """Check if formula is in our curated small molecules"""
         return formula in self.geometries
@@ -72,7 +105,8 @@ class BaseQiskitGenerator(ABC):
             "entanglement": None,
             "rotations": None,
             "active_space": None,
-            "requirements": []
+            "requirements": [],
+            "supercell": None
         }
         
         # Task detection
@@ -130,10 +164,41 @@ class BaseQiskitGenerator(ABC):
         if "circuit depth" in q or "depth" in q:
             intent["requirements"].append("print_depth")
         
+        # Supercell detection
+        supercell_match = re.search(r'(\d+)x(\d+)x(\d+)\s*supercell', q)
+        if supercell_match or "supercell" in q:
+            if supercell_match:
+                a, b, c = map(int, supercell_match.groups())
+                intent["supercell"] = {"scaling_matrix": [[a,0,0],[0,b,0],[0,0,c]]}
+            else:
+                intent["supercell"] = {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]}  # default 2x2x2
+            intent["task"] = "supercell_vqe"
+        
         return intent
     
-    def generate_base_code(self, formula: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]] = None) -> str:
-        """Generate base Qiskit code based on formula and intent"""
+    def generate_base_code(self, formula: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Generate base Qiskit code based on formula and intent - only when code is actually needed"""
+        
+        # Check if user actually wants code generation
+        query_lower = (intent.get("original_query", "") or "").lower()
+        code_keywords = ["code", "generate", "vqe", "ansatz", "circuit", "qiskit", "hamiltonian", "quantum"]
+        listing_keywords = ["show me", "list", "available", "options", "materials", "find"]
+        
+        wants_code = any(keyword in query_lower for keyword in code_keywords)
+        wants_listing = any(keyword in query_lower for keyword in listing_keywords)
+        
+        # If user clearly wants listing and doesn't mention code, don't generate code
+        if wants_listing and not wants_code:
+            logger.info(f"🚫 BASE MODEL: Skipping code generation - user wants listing, not code")
+            return None
+        
+        # If no specific task detected and no code keywords, don't generate code
+        if not intent.get("task") and not wants_code:
+            logger.info(f"🚫 BASE MODEL: Skipping code generation - no quantum task or code request detected")
+            return None
+        
+        logger.info(f"✅ BASE MODEL: Generating code - task: {intent.get('task')}, wants_code: {wants_code}")
+        
         geometry = None
         pretty_formula = formula
         
@@ -144,13 +209,79 @@ class BaseQiskitGenerator(ABC):
         elif formula.lower().startswith("mp-") and mp_data and isinstance(mp_data, dict):
             geometry = mp_data.get("geometry")
             pretty_formula = mp_data.get("formula", formula)
-        elif self.mp_agent:
-            mp_result = mp_data or self.mp_agent.search(formula)
-            if isinstance(mp_result, dict) and not mp_result.get("error"):
-                geometry = mp_result.get("geometry")
-                pretty_formula = mp_result.get("formula", formula)
-                mp_data = mp_result
+        elif mp_data and isinstance(mp_data, dict) and not mp_data.get("error"):
+            # Use existing mp_data from supervisor agent
+            geometry = mp_data.get("geometry")
+            pretty_formula = mp_data.get("formula", formula)
+            logger.info(f"✅ BASE MODEL: Using supervisor MP data - formula: {pretty_formula}, has geometry: {bool(geometry)}")
         
+        # Handle supercell VQE requests using MCP tool
+        if intent.get("task") == "supercell_vqe" and self.mp_agent and mp_data:
+            try:
+                structure_uri = mp_data.get("structure_uri")
+                supercell_params = intent.get("supercell", {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
+                
+                logger.info(f"🔧 BASE MODEL: Using MCP supercell tool for {structure_uri}")
+                supercell_result = self.mp_agent.build_supercell(structure_uri, supercell_params)
+                
+                if supercell_result:
+                    supercell_uri = supercell_result.get("supercell_uri", "")
+                    scaling = supercell_params["scaling_matrix"]
+                    
+                    code = f'''# Supercell VQE for {pretty_formula} using MCP-generated supercell
+from qiskit_nature.second_q.operators import FermionicOp
+from qiskit_nature.second_q.mappers import JordanWignerMapper
+from qiskit.circuit.library import TwoLocal
+from qiskit_algorithms import VQE
+from qiskit.primitives import Estimator
+
+# Supercell created via MCP: {supercell_uri}
+# Scaling matrix: {scaling}
+
+# Extended Hubbard model for supercell
+t = 1.0  # hopping parameter
+U = 2.0  # on-site interaction
+
+# Calculate supercell size
+supercell_sites = {scaling[0][0] * scaling[1][1] * scaling[2][2] * 2}  # 2 atoms per unit cell
+num_qubits = supercell_sites * 2  # spin up + spin down
+
+# Build fermionic Hamiltonian for supercell
+fermionic_ops = {{}}
+
+# Nearest-neighbor hopping in supercell
+for i in range(supercell_sites - 1):
+    # Up spin hopping
+    fermionic_ops[f"+_{{i*2}} -_{{(i+1)*2}}"] = -t
+    fermionic_ops[f"+_{{(i+1)*2}} -_{{i*2}}"] = -t
+    # Down spin hopping  
+    fermionic_ops[f"+_{{i*2+1}} -_{{(i+1)*2+1}}"] = -t
+    fermionic_ops[f"+_{{(i+1)*2+1}} -_{{i*2+1}}"] = -t
+
+# On-site interactions
+for i in range(supercell_sites):
+    fermionic_ops[f"+_{{i*2}} -_{{i*2}} +_{{i*2+1}} -_{{i*2+1}}"] = U
+
+# Map to qubits
+ferm_op = FermionicOp(fermionic_ops, register_length=num_qubits)
+mapper = JordanWignerMapper()
+qubit_op = mapper.map(ferm_op)
+
+# Create ansatz for supercell
+ansatz = TwoLocal(num_qubits, 'ry', 'cz', reps=2, entanglement='linear')
+
+print(f"Supercell {scaling[0][0]}x{scaling[1][1]}x{scaling[2][2]} for {pretty_formula}:")
+print(f"Sites: {{supercell_sites}}, Qubits: {{num_qubits}}")
+print(f"Hamiltonian: {{len(qubit_op)}} Pauli terms")
+print(f"Ansatz: {{ansatz.num_parameters}} parameters")
+'''
+                    return code
+                else:
+                    logger.warning(f"❌ BASE MODEL: MCP supercell creation failed")
+            except Exception as e:
+                logger.error(f"💥 BASE MODEL: MCP supercell error: {e}")
+        
+
         # Generate molecular code if geometry available
         if intent.get("task") in ("vqe", "ansatz", "initial_state") and geometry:
             family = intent.get("ansatz_family") or "two_local"
@@ -159,7 +290,15 @@ class BaseQiskitGenerator(ABC):
             ent = intent.get("entanglement") or "linear"
             rot = intent.get("rotations") or "ry"
             
-            if family == "uccsd":
+            # Check if visualization is requested
+            wants_visualization = any(term in query_lower for term in ["3d", "visualiz", "plot", "structure", "crystal"])
+            
+            if wants_visualization:
+                from utils.visualization_tools import get_vqe_visualization_code, get_modern_visualization_code
+                vqe_code = get_vqe_visualization_code(pretty_formula)
+                viz_code = get_modern_visualization_code(pretty_formula)
+                code = f"{vqe_code}\n\n{viz_code}"
+            elif family == "uccsd":
                 code = f'''# Auto-generated UCCSD ansatz for {pretty_formula}
 from qiskit_nature.second_q.drivers import PySCFDriver
 from qiskit_nature.second_q.circuit.library import UCCSD
@@ -215,55 +354,105 @@ print("TwoLocal ansatz for {pretty_formula}: parameters =", params, "depth =", d
 '''
             return code
         
-        # Generate materials Hamiltonian code
-        ident = self._sanitize_ident(formula)
-        bg = fe = None
-        if isinstance(mp_data, dict):
-            bg = mp_data.get("band_gap")
-            fe = mp_data.get("formation_energy")
-        elif self.mp_agent:
-            mp_try = self.mp_agent.search(formula)
-            if isinstance(mp_try, dict) and not mp_try.get("error"):
-                bg = mp_try.get("band_gap")
-                fe = mp_try.get("formation_energy")
-        
-        bg = 0.0 if bg is None else bg
-        fe = -3.0 if fe is None else fe
-        U = abs(fe) * 0.5
-        t = max(0.0, bg) * 0.3
-        
-        code = f'''# Effective Hamiltonian for {formula} (toy Hubbard-like)
-from qiskit.quantum_info import SparsePauliOp
+        # Generate proper quantum simulation code
+        if wants_code or intent.get("task"):
+            is_poscar = 'poscar' in query_lower
+            
+            if is_poscar:
+                # Generate proper POSCAR-based quantum simulation
+                code = f'''# Quantum simulation for POSCAR structure ({formula})
+# Using Qiskit Nature for proper fermionic-to-qubit mapping
+
+from qiskit_nature.second_q.operators import FermionicOp
+from qiskit_nature.second_q.mappers import JordanWignerMapper
+from qiskit.circuit.library import TwoLocal
+from qiskit_algorithms import VQE
+from qiskit.primitives import Estimator
+
+# Toy Hubbard model parameters (replace with DFT/tight-binding values for accuracy)
+t = 1.0  # hopping parameter (toy value)
+U = 2.0  # on-site interaction (toy value)
+
+# 2-site Hubbard model for {formula} primitive cell
+# Fermionic operators: (site0_up, site0_down, site1_up, site1_down)
+fermionic_ops = {{}}
+
+# Hopping terms: -t * (c†_0↑ c_1↑ + c†_1↑ c_0↑ + c†_0↓ c_1↓ + c†_1↓ c_0↓)
+fermionic_ops["+_0 -_2"] = -t  # up hopping 0->1
+fermionic_ops["+_2 -_0"] = -t  # up hopping 1->0
+fermionic_ops["+_1 -_3"] = -t  # down hopping 0->1
+fermionic_ops["+_3 -_1"] = -t  # down hopping 1->0
+
+# On-site interaction: U * n_up * n_down at each site
+fermionic_ops["+_0 -_0 +_1 -_1"] = U  # site 0
+fermionic_ops["+_2 -_2 +_3 -_3"] = U  # site 1
+
+# Create fermionic operator and map to qubits using QubitConverter
+from qiskit_nature.converters.second_quantization import QubitConverter
+
+ferm_op = FermionicOp(fermionic_ops, register_length=4)
+mapper = JordanWignerMapper()
+converter = QubitConverter(mapper=mapper)
+qubit_op = converter.convert(ferm_op)
+
+print(f"Fermionic Hamiltonian for {formula}: {{len(fermionic_ops)}} terms")
+print(f"Qubit Hamiltonian: {{qubit_op.num_qubits}} qubits (should be 4, not 8)")
+
+# Create ansatz and run VQE
+from qiskit import Aer
+from qiskit.utils import QuantumInstance
+from qiskit.algorithms.optimizers import SLSQP
+
+ansatz = TwoLocal(num_qubits=4, rotation_blocks='ry', entanglement_blocks='cz', reps=2, entanglement='linear')
+optimizer = SLSQP(maxiter=100)
+quantum_instance = QuantumInstance(Aer.get_backend('aer_simulator_statevector'))
+vqe = VQE(ansatz, optimizer=optimizer, quantum_instance=quantum_instance)
+
+print(f"Ansatz: {{ansatz.num_parameters}} parameters, depth={{ansatz.depth()}}")
+print("Note: This is a toy 2-site Hubbard model for the POSCAR primitive cell.")
+print("For accurate Si simulation, use DFT-derived tight-binding parameters.")
+'''
+            else:
+                # Generate standard materials Hamiltonian with proper fermionic mapping
+                bg = fe = None
+                if isinstance(mp_data, dict):
+                    bg = mp_data.get("band_gap")
+                    fe = mp_data.get("formation_energy")
+                
+                bg = 0.0 if bg is None else bg
+                fe = -3.0 if fe is None else fe
+                t = max(0.1, bg * 0.3)
+                U = abs(fe) * 0.5
+                
+                code = f'''# Toy Hubbard model for {formula} using proper fermionic mapping
+from qiskit_nature.second_q.operators import FermionicOp
+from qiskit_nature.second_q.mappers import JordanWignerMapper
 from qiskit.circuit.library import TwoLocal
 
-# Materials Project derived values
-# band_gap = {bg}
-# formation_energy = {fe}
-U = {U:.6f}
-t = {t:.6f}
+# Toy parameters derived from Materials Project data
+# band_gap = {bg} eV, formation_energy = {fe} eV/atom
+t = {t:.3f}  # hopping (toy)
+U = {U:.3f}  # interaction (toy)
 
-num_qubits = 8  # toy active space
-hopping_terms = []
-for i in range(num_qubits-1):
-    pauli_str = ['I'] * num_qubits
-    pauli_str[i] = 'X'
-    pauli_str[i+1] = 'X'
-    hopping_terms.append((''.join(pauli_str), -t))
+# 4-site toy model
+fermionic_ops = {{}}
+for i in range(3):  # hopping between adjacent sites
+    fermionic_ops[f"+_{{i}} -_{{i+1}}"] = -t
+    fermionic_ops[f"+_{{i+1}} -_{{i}}"] = -t
 
-interaction_terms = []
-for i in range(0, num_qubits, 2):
-    pauli_str = ['I'] * num_qubits
-    pauli_str[i] = 'Z'
-    if i+1 < num_qubits:
-        pauli_str[i+1] = 'Z'
-    interaction_terms.append((''.join(pauli_str), U))
+for i in range(0, 4, 2):  # on-site interaction
+    fermionic_ops[f"+_{{i}} -_{{i}} +_{{i+1}} -_{{i+1}}"] = U
 
-hamiltonian = SparsePauliOp.from_list(hopping_terms + interaction_terms)
-ansatz = TwoLocal(num_qubits, 'ry', 'cz', reps=2, entanglement='linear')
+ferm_op = FermionicOp(fermionic_ops, register_length=4)
+mapper = JordanWignerMapper()
+qubit_op = mapper.map(ferm_op)
 
-print("Effective Hamiltonian for {formula}: qubits =", num_qubits, "terms =", len(hamiltonian))
+ansatz = TwoLocal(4, 'ry', 'cz', reps=2, entanglement='linear')
+print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.num_parameters}} parameters")
 '''
-        return code
+            return code
+        
+        return None
     
     def generate_response(self, query: str, temperature: float = 0.7, max_tokens: int = 1000, 
                          top_p: float = 0.9, include_mp_data: bool = True) -> Dict[str, Any]:
@@ -271,20 +460,102 @@ print("Effective Hamiltonian for {formula}: qubits =", num_qubits, "terms =", le
         try:
             # Detect intent and extract formula
             intent = self._detect_intent(query)
+            logger.info(f"🔍 BASE MODEL: Starting generate_response for query: '{query[:100]}...'")
+            logger.info(f"🔍 BASE MODEL: Parameters - include_mp_data={include_mp_data}, mp_agent_type={type(self.mp_agent)}")
             
             # Extract potential formula/material from query
-            formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b|mp-\d+', query)
-            formula = formula_match.group(0) if formula_match else "H2"
+            # First try element names
+            element_names = {
+                'silicon': 'Si', 'titanium': 'Ti', 'iron': 'Fe', 'copper': 'Cu',
+                'aluminum': 'Al', 'carbon': 'C', 'oxygen': 'O', 'hydrogen': 'H',
+                'lithium': 'Li', 'sodium': 'Na', 'potassium': 'K', 'calcium': 'Ca',
+                'magnesium': 'Mg', 'zinc': 'Zn', 'nickel': 'Ni', 'cobalt': 'Co'
+            }
             
-            # Get Materials Project data if requested
+            formula = None
+            query_lower = query.lower()
+            
+            # Check for element names first
+            for name, symbol in element_names.items():
+                if name in query_lower:
+                    formula = symbol
+                    break
+            
+            # Check for POSCAR structure first
+            if 'poscar' in query_lower or ('direct' in query_lower and any(line.strip().replace('.','').replace(' ','').isdigit() for line in query.split('\n'))):
+                # Use supervisor agent for POSCAR analysis
+                if self.mp_agent:
+                    try:
+                        from agents import SupervisorAgent
+                        supervisor = SupervisorAgent(self.mp_agent)
+                        poscar_result = supervisor.process_poscar_query(query, query)
+                        
+                        if poscar_result["status"] == "matched":
+                            formula = poscar_result["matched_material_id"]
+                            mp_data = poscar_result["mp_data"]
+                            logger.info(f"✅ BASE MODEL: POSCAR matched to {formula} via supervisor agent")
+                        else:
+                            formula = poscar_result["formula"]
+                            logger.info(f"⚠️ BASE MODEL: POSCAR no match, using formula: {formula}")
+                    except ImportError:
+                        formula = self._extract_formula_from_poscar(query)
+                        logger.info(f"🔍 BASE MODEL: Fallback POSCAR extraction: {formula}")
+                else:
+                    formula = self._extract_formula_from_poscar(query)
+                    logger.info(f"🔍 BASE MODEL: Basic POSCAR extraction: {formula}")
+            # Then try material IDs (highest priority)
+            elif not formula:
+                mp_match = re.search(r'mp-\d+', query)
+                if mp_match:
+                    formula = mp_match.group(0)
+                else:
+                    # Try chemical formulas (but exclude common words)
+                    formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b', query)
+                    if formula_match:
+                        candidate = formula_match.group(0)
+                        # Exclude common quantum computing terms
+                        if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP', 'POSCAR']:
+                            formula = candidate
+                        else:
+                            formula = "H2"  # Default fallback
+                    else:
+                        formula = "H2"
+            logger.info(f"🔍 BASE MODEL: Extracted formula '{formula}' from query: '{query[:100]}...'")
+            
+            # Use supervisor agent to handle MCP tool selection and data retrieval
             mp_data = None
+            logger.info(f"🔍 BASE MODEL: include_mp_data={include_mp_data}, mp_agent={type(self.mp_agent) if self.mp_agent else None}")
             if include_mp_data and self.mp_agent:
                 try:
-                    mp_data = self.mp_agent.search(formula)
+                    from agents.supervisor_agent import SupervisorAgent
+                    supervisor = SupervisorAgent(self.mp_agent)
+                    
+                    logger.info(f"🤖 BASE MODEL: Using supervisor agent for query: {query[:100]}...")
+                    supervisor_result = supervisor.process_query(query, formula)
+                    
+                    if supervisor_result and supervisor_result.get("status") == "success":
+                        mp_data = supervisor_result.get("mp_data")
+                        mcp_actions = supervisor_result.get("mcp_actions", [])
+                        logger.info(f"✅ BASE MODEL: Supervisor handled query with {len(mcp_actions)} MCP actions: {mcp_actions}")
+                    else:
+                        logger.warning(f"⚠️ BASE MODEL: Supervisor returned error: {supervisor_result}")
+                        
+                except ImportError as ie:
+                    logger.error(f"💥 BASE MODEL: Cannot import supervisor agent: {ie}")
                 except Exception as e:
-                    logger.warning(f"MP API error: {e}")
+                    logger.error(f"💥 BASE MODEL: Supervisor error: {e}")
+                    
+                if mp_data:
+                    logger.info(f"✅ BASE MODEL: MP data retrieved: {type(mp_data)} with keys: {list(mp_data.keys()) if isinstance(mp_data, dict) else 'N/A'}")
+                else:
+                    logger.warning(f"❌ BASE MODEL: No MP data retrieved for {formula}")
+            else:
+                logger.warning(f"❌ BASE MODEL: Skipping MP search - include_mp_data={include_mp_data}, has_agent={bool(self.mp_agent)}")
             
-            # Generate base code
+            # Store original query in intent for code generation logic
+            intent["original_query"] = query
+            
+            # Generate base code only if needed
             base_code = self.generate_base_code(formula, intent, mp_data)
             
             # Create enhanced prompt for LLM
@@ -298,9 +569,25 @@ print("Effective Hamiltonian for {formula}: qubits =", num_qubits, "terms =", le
                 top_p=top_p
             )
             
+            # Smart code handling - prefer LLM code, fallback to base code only if needed
+            final_code = None
+            if base_code:  # Only process code if we generated base code
+                try:
+                    extracted_code = self._extract_code_from_response(llm_response)
+                    if extracted_code and len(extracted_code.strip()) > 100:  # LLM generated substantial code
+                        final_code = extracted_code
+                        logger.info(f"✅ BASE MODEL: Using LLM-generated code ({len(extracted_code)} chars)")
+                    else:
+                        final_code = base_code  # Fallback to base code
+                        logger.info(f"🔄 BASE MODEL: Using fallback base code - LLM code insufficient")
+                except Exception as extract_error:
+                    logger.warning(f"Code extraction failed: {extract_error}")
+                    final_code = base_code  # Fallback to base code
+            
+            logger.info(f"✅ BASE MODEL: Response generated - has_mp_data={bool(mp_data)}, formula={formula}")
             return {
                 "text": llm_response,
-                "code": base_code,
+                "code": final_code,
                 "mp_data": mp_data if include_mp_data else None,
                 "intent": intent,
                 "formula": formula
@@ -318,7 +605,21 @@ print("Effective Hamiltonian for {formula}: qubits =", num_qubits, "terms =", le
     
     def _create_enhanced_prompt(self, query: str, base_code: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]]) -> str:
         """Create an enhanced prompt for the LLM"""
-        prompt = f"""You are an expert in quantum computing and materials science. 
+        
+        # Core system prompt for all models
+        system_header = """You are an expert quantum-materials research assistant. Answer the user's question directly and provide relevant information based on their specific request.
+
+When generating code:
+- Use only public, documented Qiskit / Qiskit-Nature APIs compatible with Qiskit v1.2.4
+- Prefer Jordan–Wigner mapping unless told otherwise
+- Include parameter counts and circuit depth when relevant
+
+When showing materials data:
+- If user asks for "available options" or "show me materials", list all found materials
+- If user asks for specific analysis, focus on the most relevant material
+- Always echo the material IDs, composition, and key properties you're using"""
+        
+        prompt = f"""{system_header}
 
 User Query: {query}
 
@@ -338,12 +639,58 @@ Detected Intent: {json.dumps(intent, indent=2)}
 
 """
         
-        prompt += """Please provide:
-1. An explanation of the quantum computing concepts involved
-2. How the generated code addresses the user's query
-3. Any improvements or alternatives you would suggest
-4. Relevant physics/chemistry background if applicable
+        prompt += """Please respond directly to the user's question. If they asked to see available options, show all materials found. If they want code generation, provide complete runnable code with explanations.
 
-Keep your response focused, technical, and educational."""
+Keep your response focused and match what the user specifically requested."""
         
         return prompt
+    
+    def _extract_code_from_response(self, response: str) -> Optional[str]:
+        """Extract Python code from LLM response"""
+        if not response:
+            return None
+        
+        import re
+        
+        # Decode HTML entities first (with fallback)
+        try:
+            import html
+            response = html.unescape(response)
+        except (ImportError, Exception):
+            # Fallback: basic entity replacement
+            response = response.replace('&#39;', "'").replace('&quot;', '"').replace('&amp;', '&')
+        
+        # Look for code blocks in markdown format (multiple patterns)
+        patterns = [
+            r'```python\s*\n(.*?)```',
+            r'```\s*\n(.*?)```',
+            r'```python(.*?)```',
+            r'```(.*?)```'
+        ]
+        
+        for pattern in patterns:
+            code_blocks = re.findall(pattern, response, re.DOTALL)
+            if code_blocks:
+                # Return the longest code block (likely the main implementation)
+                longest_code = max(code_blocks, key=len).strip()
+                if len(longest_code) > 50:  # Ensure it's substantial code
+                    return longest_code
+        
+        # Look for code after "Here's the corrected code" or similar
+        corrected_code_match = re.search(r'(?:Here\'s the corrected code|corrected code)[^:]*:?\s*\n\n(.*?)(?=\n\n|$)', response, re.DOTALL | re.IGNORECASE)
+        if corrected_code_match:
+            code_text = corrected_code_match.group(1).strip()
+            if code_text and len(code_text) > 50:
+                return code_text
+        
+        # Look for code after "4. Code" or "## 4) Code" section
+        code_section_match = re.search(r'(?:4\.|##\s*4\))\s*Code[^\n]*\n(.*?)(?=\n(?:5\.|##\s*5\)|Sanity Checks|$))', response, re.DOTALL | re.IGNORECASE)
+        if code_section_match:
+            code_text = code_section_match.group(1).strip()
+            # Remove any remaining markdown formatting
+            code_text = re.sub(r'^```(?:python)?\n?', '', code_text, flags=re.MULTILINE)
+            code_text = re.sub(r'\n?```$', '', code_text)
+            if code_text and len(code_text) > 50:
+                return code_text
+        
+        return None
