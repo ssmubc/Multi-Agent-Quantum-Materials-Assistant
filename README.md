@@ -10,11 +10,12 @@ A Streamlit application for testing and comparing different Large Language Model
 
 ## Features
 
-- **4 LLM Models Support:**
+- **5 LLM Models Support:**
   - **Nova Pro** (us-east-1) - Amazon's latest multimodal model
   - **Llama 4 Scout 17B** (us-east-1) - Meta's latest instruction-tuned model  
   - **Llama 3 70B** (us-west-2) - Meta's powerful 70B parameter model
   - **OpenAI GPT OSS** (us-west-2) - OpenAI's open-source model
+  - **Qwen 3-32B** (us-east-1) - Alibaba's advanced reasoning model
 
 - **Materials Project Integration:**
   - Automatic material property lookup
@@ -157,6 +158,7 @@ app.py                          # Main Streamlit application
 | Llama 4 Scout | us-east-1 | `us.meta.llama4-scout-17b-instruct-v1:0` | Fast, efficient |
 | Llama 3 70B | us-west-2 | `meta.llama3-70b-instruct-v1:0` | High quality, detailed |
 | OpenAI GPT | us-west-2 | `openai.gpt-oss-20b-1:0` | Alternative approach |
+| Qwen 3-32B | us-east-1 | `qwen.qwen3-32b-v1:0` | Advanced reasoning, structured output |
 
 ## Troubleshooting
 
@@ -199,10 +201,34 @@ pip install -r requirements.txt
 4. Add tests if applicable
 5. Submit a pull request
 
+## AWS Elastic Beanstalk Deployment
+
+For web deployment without requiring users to clone the repository:
+
+1. **See DEPLOYMENT.md** for complete deployment guide
+2. **Deploy to AWS Elastic Beanstalk** for shared web access
+3. **Users access via URL** - no setup required
+4. **Auto-scaling** and load balancing included
+
+### Quick Deploy
+```bash
+# 1. Install EB CLI
+pip install awsebcli
+
+# 2. Initialize and deploy
+eb init quantum-matter-app --platform docker --region us-east-1
+eb create quantum-matter-env --instance-types t3.medium
+eb deploy
+
+# 3. Get URL
+eb status
+```
+
 ## Support
 
 For issues and questions:
 1. Check the troubleshooting section above
 2. Review AWS Bedrock documentation
 3. Check Materials Project API documentation
-4. Open an issue in the repository
+4. See DEPLOYMENT.md for deployment issues
+5. Open an issue in the repository
