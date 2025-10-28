@@ -6,19 +6,36 @@ from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 import traceback
+import base64
+from io import BytesIO
+
+# Import authentication
+from auth_module import require_auth
 
 # Import our model classes
 from models.nova_pro_model import NovaProModel
 from models.llama4_model import Llama4Model
 from models.llama3_model import Llama3Model
 from models.openai_model import OpenAIModel
+from models.qwen_model import QwenModel
+from models.deepseek_model import DeepSeekModel
+from models.claude_opus_model import ClaudeOpusModel
+
 from utils.materials_project_agent import MaterialsProjectAgent
+from utils.enhanced_mcp_client import EnhancedMCPAgent
 from utils.secrets_manager import get_mp_api_key
+from utils.logging_display import setup_logging_display, display_mcp_logs
 from demo_mode import get_demo_response
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Print startup message to console
+print("\n" + "="*60)
+print("🚀 QUANTUM MATTER STREAMLIT APP STARTING")
+print("📋 MCP logging is enabled - watch for [MCP LOG] messages")
+print("="*60 + "\n")
 
 # Page configuration
 st.set_page_config(
@@ -27,6 +44,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Set default AWS region for App Runner
+if not os.environ.get('AWS_DEFAULT_REGION'):
+    os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
 
 # Custom CSS
 st.markdown("""
@@ -88,7 +109,7 @@ def check_aws_credentials():
         # Determine credential source
         profile_name = session.profile_name or "default"
         if 'assumed-role' in identity.get('Arn', ''):
-            source = f"IAM Role via profile '{profile_name}'"
+            source = f"IAM Role (App Runner)"
         elif os.environ.get('AWS_PROFILE'):
             source = f"AWS Profile '{os.environ.get('AWS_PROFILE')}'"
         elif profile_name != "default":
@@ -120,7 +141,13 @@ def setup_materials_project():
     """Setup Materials Project API"""
     st.sidebar.subheader("🔬 Materials Project API")
     
-    # Option 1: Use AWS Secrets Manager
+    # Option 1: Use MCP Materials Project server
+    use_mcp = st.sidebar.checkbox(
+        "Use MCP Materials Project Server",
+        help="Use advanced MCP server for Materials Project access"
+    )
+    
+    # Option 2: Use AWS Secrets Manager
     use_secrets_manager = st.sidebar.checkbox(
         "Use AWS Secrets Manager for MP API Key",
         help="Retrieve MP API key from AWS Secrets Manager"
@@ -152,8 +179,16 @@ def setup_materials_project():
     
     if mp_api_key:
         try:
-            st.session_state.mp_agent = MaterialsProjectAgent(api_key=mp_api_key)
-            st.sidebar.success("✅ Materials Project API configured")
+            if use_mcp:
+                logger.info("🚀 STREAMLIT: Initializing Enhanced MCP Materials Project Agent")
+                st.session_state.mp_agent = EnhancedMCPAgent(api_key=mp_api_key)
+                st.sidebar.success("✅ Enhanced MCP Materials Project server configured")
+                logger.info("✅ STREAMLIT: Enhanced MCP Agent initialized successfully")
+            else:
+                logger.info("🔧 STREAMLIT: Initializing standard Materials Project Agent")
+                st.session_state.mp_agent = MaterialsProjectAgent(api_key=mp_api_key)
+                st.sidebar.success("✅ Materials Project API configured")
+                logger.info("✅ STREAMLIT: Standard MP Agent initialized successfully")
             
             # Auto-store manually entered key to Secrets Manager
             if st.session_state.aws_configured and not use_secrets_manager:
@@ -171,8 +206,15 @@ def setup_materials_project():
 
 def initialize_models():
     """Initialize all LLM models"""
-    if st.session_state.models_initialized:
+    # Check if we need to reinitialize due to MP agent change
+    current_mp_agent = st.session_state.mp_agent
+    if (st.session_state.models_initialized and 
+        hasattr(st.session_state, 'last_mp_agent') and 
+        st.session_state.last_mp_agent == current_mp_agent):
         return
+    
+    logger.info(f"🔄 STREAMLIT: Initializing models with MP agent: {type(current_mp_agent)}")
+    st.session_state.last_mp_agent = current_mp_agent
     
     st.session_state.models = {}
     
@@ -197,7 +239,23 @@ def initialize_models():
             "class": OpenAIModel,
             "region": "us-west-2",
             "model_id": "openai.gpt-oss-20b-1:0"
-        }
+        },
+        "Qwen 3-32B": {
+            "class": QwenModel,
+            "region": "us-east-1",
+            "model_id": "qwen.qwen3-32b-v1:0"
+        },
+        "DeepSeek R1": {
+            "class": DeepSeekModel,
+            "region": "us-east-1",
+            "model_id": "us.deepseek.r1-v1:0"
+        },
+        "Claude Opus 4.1": {
+            "class": ClaudeOpusModel,
+            "region": "us-east-1",
+            "model_id": "us.anthropic.claude-opus-4-1-20250805-v1:0"
+        },
+
     }
     
     # Initialize each model
@@ -241,6 +299,13 @@ def display_model_status():
 
 def main():
     """Main application"""
+    # Check authentication first
+    if not require_auth():
+        return
+    
+    # Setup logging display
+    setup_logging_display()
+    
     initialize_session_state()
     
     # Header
@@ -263,14 +328,71 @@ def main():
         else:
             st.sidebar.info("💡 Configure AWS credentials using SSO, AWS CLI, environment variables, or IAM roles")
     
+
     # Materials Project Setup
     mp_configured = setup_materials_project()
+    
+    # Show MCP status in sidebar
+    if st.session_state.mp_agent:
+        st.sidebar.subheader("🔬 MCP Status")
+        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+            st.sidebar.success("✅ Enhanced MCP Server Active")
+            st.sidebar.info("📊 Advanced Materials Project features available")
+            
+            # Show recent MCP activity
+            with st.sidebar.expander("🔍 Recent MCP Activity"):
+                handler = setup_logging_display()
+                mcp_logs = handler.get_mcp_logs()
+                
+                if mcp_logs:
+                    # Show last 3 MCP logs
+                    for log in reversed(mcp_logs[-3:]):
+                        if '✅' in log['message'] or '🚀' in log['message']:
+                            st.success(log['message'])
+                        elif '❌' in log['message'] or '💥' in log['message']:
+                            st.error(log['message'])
+                        else:
+                            st.info(log['message'])
+                else:
+                    st.info("No MCP activity yet")
+                
+                # Test MCP button
+                if st.button("🧪 Test MCP", help="Test MCP server with mp-149 (Silicon)"):
+                    if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        try:
+                            result = st.session_state.mp_agent.search("mp-149")
+                            if result and 'error' not in result:
+                                st.success(f"MCP Test Success: {result.get('material_id', 'Found material')}")
+                            else:
+                                st.error(f"MCP Test Failed: {result.get('error', 'Unknown error')}")
+                        except Exception as e:
+                            st.error(f"MCP Test Error: {str(e)}")
+                    else:
+                        st.warning("MCP server not active")
+        else:
+            st.sidebar.info("🔧 Standard MP API Active")
+            st.sidebar.warning("⚠️ Limited to basic MP features")
+            
+            # Test standard API button
+            with st.sidebar.expander("🔍 Test Standard API"):
+                if st.button("🧪 Test API", help="Test standard MP API with mp-149"):
+                    try:
+                        result = st.session_state.mp_agent.search("mp-149")
+                        if result and 'error' not in result:
+                            st.success("Standard API Test Success")
+                        else:
+                            st.error(f"API Test Failed: {result.get('error', 'Unknown error')}")
+                    except Exception as e:
+                        st.error(f"API Test Error: {str(e)}")
     
     # Initialize demo_mode
     demo_mode = False
     
     # Initialize models if AWS is configured
     if aws_status:
+        # Force re-initialization if MP agent changed
+        if mp_configured and not st.session_state.models_initialized:
+            st.session_state.models_initialized = False
         initialize_models()
         display_model_status()
     elif demo_mode:
@@ -303,7 +425,7 @@ def main():
     with col1:
         st.subheader("🎯 Select Model")
         if demo_mode:
-            available_models = ["Nova Pro", "Llama 4 Scout", "Llama 3 70B", "OpenAI GPT OSS"]
+            available_models = ["Nova Pro", "Llama 4 Scout", "Llama 3 70B", "OpenAI GPT OSS", "Qwen 3-32B", "DeepSeek R1", "Claude Opus 4.1"]
         else:
             available_models = [name for name, info in st.session_state.models.items() 
                               if info["status"] == "ready"]
@@ -322,7 +444,9 @@ def main():
         if selected_model:
             if demo_mode:
                 regions = {"Nova Pro": "us-east-1", "Llama 4 Scout": "us-east-1", 
-                          "Llama 3 70B": "us-west-2", "OpenAI GPT OSS": "us-west-2"}
+                          "Llama 3 70B": "us-west-2", "OpenAI GPT OSS": "us-west-2", 
+                          "Qwen 3-32B": "us-east-1", "DeepSeek R1": "us-east-1", 
+                          "Claude Opus 4.1": "us-east-1"}
                 st.info(f"""
                 **Selected Model:** {selected_model} (Demo Mode)  
                 **Region:** {regions.get(selected_model, "N/A")}  
@@ -362,6 +486,13 @@ def main():
         # Submit button
         if st.button("🚀 Generate Response", type="primary", disabled=not query.strip()):
             if selected_model and query.strip():
+                # Show what will be used
+                if include_mp_data and st.session_state.mp_agent:
+                    if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        st.info("🔬 Will use Enhanced MCP Materials Project Server for data lookup")
+                    else:
+                        st.info("🔧 Will use standard Materials Project API for data lookup")
+                
                 generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode)
 
 def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False):
@@ -423,6 +554,13 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
         # Show loading spinner
         with st.spinner(f"Generating response using {model_name}..."):
             try:
+                # Log MCP usage
+                if include_mp_data and st.session_state.mp_agent:
+                    if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        logger.info(f"🔬 STREAMLIT: Using Enhanced MCP server for Materials Project data with query: '{query}'")
+                    else:
+                        logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
+                
                 # Generate response
                 response = model_instance.generate_response(
                     query=query,
@@ -438,10 +576,54 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     st.markdown("### 📝 Generated Response")
                     st.markdown(response.get("text", "No response text"))
                     
-                    # Code output (if any)
-                    if "code" in response:
-                        st.markdown("### 💻 Generated Code")
-                        st.code(response["code"], language="python")
+                    # Code output (only if there is actual code and it's different from what's in the text)
+                    if "code" in response and response["code"] is not None and response["code"].strip():
+                        # Check if the code is already displayed in the response text
+                        response_text = response.get("text", "")
+                        code_content = response["code"].strip()
+                        
+                        # Only show separate code section if code isn't already in the response
+                        if code_content not in response_text:
+                            st.markdown("### 💻 Generated Code")
+                            st.code(response["code"], language="python")
+                    
+                    # 3D Structure Plot (if MCP generated one)
+                    if (include_mp_data and isinstance(st.session_state.mp_agent, EnhancedMCPAgent) and 
+                        ("3d" in query.lower() or "plot" in query.lower() or "visualiz" in query.lower())):
+                        try:
+                            # Get the most recent plot result from MCP agent
+                            formula = response.get("formula", "mp-149")
+                            mp_data = response.get("mp_data", {})
+                            structure_uri = mp_data.get("structure_uri")
+                            
+                            if structure_uri:
+                                # Call plot_structure to get base64 image
+                                plot_result = st.session_state.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+                                
+                                if plot_result:
+                                    st.markdown("### 🎨 3D Structure Visualization")
+                                    
+                                    # Extract base64 image data
+                                    image_data = None
+                                    if isinstance(plot_result, str) and len(plot_result) > 1000:
+                                        image_data = plot_result
+                                    elif isinstance(plot_result, list) and plot_result:
+                                        image_data = plot_result[0] if isinstance(plot_result[0], str) else None
+                                    
+                                    if image_data:
+                                        try:
+                                            # Display the 3D structure image
+                                            image_bytes = base64.b64decode(image_data)
+                                            st.image(image_bytes, caption=f"3D Crystal Structure: {formula}", use_container_width=True)
+                                            st.success(f"✅ 3D structure visualization for {formula} (Crystal System: {mp_data.get('crystal_system', 'Unknown')})")
+                                        except Exception as decode_error:
+                                            st.warning(f"⚠️ 3D plot generated but display failed: {str(decode_error)}")
+                                            if st.button("🖼️ Show Plot Info"):
+                                                st.info(f"Plot data size: {len(image_data)} characters")
+                                    else:
+                                        st.info("📊 3D structure plot was generated by MCP server")
+                        except Exception as plot_error:
+                            logger.warning(f"Plot display error: {plot_error}")
                     
                     # Materials Project data (if included)
                     if "mp_data" in response and response["mp_data"]:
@@ -457,9 +639,16 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                             "Temperature": temperature,
                             "Max Tokens": max_tokens,
                             "Top P": top_p,
-                            "Response Length": len(response.get("text", "")),
+                            "Response Length": len(response.get("text") or ""),
+                            "MP Data Included": include_mp_data,
+                            "MP Agent Type": "Enhanced MCP" if isinstance(st.session_state.mp_agent, EnhancedMCPAgent) else "Standard API" if st.session_state.mp_agent else "None"
                         }
                         st.json(metadata)
+                    
+                    # Show MCP activity logs if MCP was used
+                    if include_mp_data and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        with st.expander("🔍 MCP Activity Log"):
+                            display_mcp_logs()
                 
                 else:
                     st.error("❌ No response generated")
