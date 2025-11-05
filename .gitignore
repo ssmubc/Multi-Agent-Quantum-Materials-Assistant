@@ -96,3 +96,8 @@ requirements (3).txt
 sagemaker_analysis.md
 deepseek_generator_fixed.py
 install_mcp.py
+
+# Sensitive EB deployment configs
+.ebextensions/02_https_alb.config
+.ebextensions/03_cloudfront_security.config
+set_api_key.bat
