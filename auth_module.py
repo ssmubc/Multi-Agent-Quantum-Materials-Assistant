@@ -4,6 +4,14 @@ Simple authentication for Streamlit app
 import streamlit as st
 import os
 
+# Try to load from .env file for local development
+try:
+    from dotenv import load_dotenv
+    if os.path.exists('.env.local'):
+        load_dotenv('.env.local')
+except ImportError:
+    pass
+
 # Demo credentials from environment variables (no fallbacks for security)
 DEMO_USERS = {}
 if os.getenv("DEMO_USERNAME") and os.getenv("DEMO_PASSWORD"):
