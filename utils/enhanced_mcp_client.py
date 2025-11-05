@@ -28,12 +28,13 @@ class EnhancedMCPClient:
             import shutil
             uv_path = shutil.which("uv") or "uv"
             
+            # Use direct Python execution - bypass uv
+            python_exe = env.get('MCP_PYTHON_PATH', 'python')
             self.server_process = subprocess.Popen([
-                uv_path,
-                "run", 
-                "enhanced-mcp-materials"
+                python_exe, "-c", 
+                "import sys; sys.path.insert(0, '.'); from enhanced_mcp_materials.local_server import main; main()"
             ],
-            cwd="enhanced_mcp_materials",
+            cwd=".",
             env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -132,6 +133,18 @@ class EnhancedMCPClient:
             if sys.platform == 'win32':
                 # Windows doesn't support select on pipes, so just try to read
                 try:
+                    # Check if process is still alive first
+                    if self.server_process.poll() is not None:
+                        logger.error(f"💀 MCP: Server process died with return code: {self.server_process.returncode}")
+                        # Read stderr for error details
+                        try:
+                            stderr_output = self.server_process.stderr.read()
+                            if stderr_output:
+                                logger.error(f"💀 MCP: Server stderr: {stderr_output}")
+                        except:
+                            pass
+                        return None
+                    
                     response_str = self.server_process.stdout.readline()
                 except Exception as read_error:
                     logger.error(f"📥 MCP: Failed to read response: {read_error}")
