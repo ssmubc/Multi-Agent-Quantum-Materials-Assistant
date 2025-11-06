@@ -1,42 +1,16 @@
-# Streamlit and web framework
 streamlit>=1.28.0
-
-# AWS SDK
 boto3>=1.34.0
 botocore>=1.34.0
-
-# Quantum computing libraries
-qiskit-terra>=0.25.2
-qiskit-aer>=0.11.2
-qiskit-algorithms>=0.2.1
-qiskit-nature>=0.6.0
-
-# Scientific computing
-numpy>=2.2.6
-scipy>=1.15.3
-sympy>=1.14.0
-# pyscf>=2.10.0  # Optional - requires C++ compiler on Windows
-
-# Materials Project API
-mp-api>=0.41.2
-pymatgen>=2025.6.14
-
-# Additional dependencies
-psutil>=7.0.0
-h5py>=3.14.0
-joblib>=1.5.1
-pandas>=2.3.2
-matplotlib>=3.10.6
-plotly>=6.2.0
-
-# Authentication
-streamlit-cognito-auth>=0.1.0
-streamlit-authenticator>=0.2.3
-pyjwt>=2.8.0
-bcrypt>=4.1.2
-
-# Utilities
+mp-api>=0.41.0
+pymatgen>=2023.10.11
+qiskit>=0.45.0
+qiskit-nature>=0.7.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+plotly>=5.17.0
+pandas>=2.0.0
+requests>=2.31.0
 python-dotenv>=1.0.0
-python-dateutil>=2.9.0
-typing-extensions>=4.15.0
-setuptools>=80.9.0
+Pillow>=10.0.0
+strands>=1.0.0
+strands-tools>=1.0.0
