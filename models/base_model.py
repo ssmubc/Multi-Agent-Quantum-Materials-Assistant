@@ -522,10 +522,13 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                         formula = "H2"
             logger.info(f"🔍 BASE MODEL: Extracted formula '{formula}' from query: '{query[:100]}...'")
             
-            # Use supervisor agent to handle MCP tool selection and data retrieval
-            mp_data = None
-            logger.info(f"🔍 BASE MODEL: include_mp_data={include_mp_data}, mp_agent={type(self.mp_agent) if self.mp_agent else None}")
-            if include_mp_data and self.mp_agent:
+            # Check for cached Strands data first, then use supervisor agent
+            mp_data = getattr(self, '_cached_mp_data', None)
+            
+            if mp_data:
+                logger.info(f"✅ BASE MODEL: Using cached Strands MP data: {list(mp_data.keys()) if isinstance(mp_data, dict) else 'N/A'}")
+            elif include_mp_data and self.mp_agent:
+                logger.info(f"🔍 BASE MODEL: include_mp_data={include_mp_data}, mp_agent={type(self.mp_agent) if self.mp_agent else None}")
                 try:
                     from agents.supervisor_agent import SupervisorAgent
                     supervisor = SupervisorAgent(self.mp_agent)
@@ -639,7 +642,20 @@ Detected Intent: {json.dumps(intent, indent=2)}
 
 """
         
+        # Add Strands context if available
+        if hasattr(self, '_cached_mp_data') and self._cached_mp_data:
+            prompt += """\n\nStrands Analysis Context:
+AWS Strands agents have already analyzed this query and gathered relevant data. Use this information to provide a comprehensive response that includes detailed explanations, code generation, and scientific insights.
+
+"""
+        
         prompt += """Please respond directly to the user's question. If they asked to see available options, show all materials found. If they want code generation, provide complete runnable code with explanations.
+
+Provide a comprehensive response with:
+1. Scientific explanation of the concepts
+2. Detailed analysis of the materials/structures involved
+3. Complete, runnable code if requested
+4. Practical applications and next steps
 
 Keep your response focused and match what the user specifically requested."""
         
