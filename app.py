@@ -26,6 +26,11 @@ from utils.enhanced_mcp_client import EnhancedMCPAgent
 from utils.secrets_manager import get_mp_api_key
 from utils.logging_display import setup_logging_display, display_mcp_logs
 from demo_mode import get_demo_response
+from agents.strands_supervisor import StrandsSupervisorAgent
+from agents.strands_coordinator import StrandsCoordinator
+from agents.strands_dft_agent import StrandsDFTAgent
+from agents.strands_structure_agent import StrandsStructureAgent
+from agents.strands_agentic_loop import StrandsAgenticLoop
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -90,6 +95,11 @@ def initialize_session_state():
         st.session_state.models = {}
     if 'aws_configured' not in st.session_state:
         st.session_state.aws_configured = False
+    if 'strands_supervisor' not in st.session_state:
+        st.session_state.strands_supervisor = None
+    if 'strands_agents' not in st.session_state:
+        st.session_state.strands_agents = {}
+
 
 def check_aws_credentials():
     """Check if AWS credentials are available"""
@@ -423,7 +433,30 @@ def main():
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("🎯 Select Model")
+        st.subheader("🎯 Select Agent & Model")
+        
+        # Agent type selection
+        agent_type = st.selectbox(
+            "Agent Framework:",
+            ["Standard Agents", "AWS Strands"],
+            help="Choose between custom agents or AWS Strands framework"
+        )
+        
+        # Initialize Strands agents if selected
+        if agent_type == "AWS Strands" and st.session_state.mp_agent:
+            if not st.session_state.strands_supervisor:
+                try:
+                    st.session_state.strands_supervisor = StrandsSupervisorAgent(st.session_state.mp_agent)
+                    st.session_state.strands_agents = {
+                        'coordinator': StrandsCoordinator(st.session_state.mp_agent),
+                        'dft_agent': StrandsDFTAgent(),
+                        'structure_agent': StrandsStructureAgent(st.session_state.mp_agent),
+                        'agentic_loop': StrandsAgenticLoop(st.session_state.mp_agent)
+                    }
+                    st.success("✅ AWS Strands agents initialized")
+                except Exception as e:
+                    st.error(f"❌ Strands initialization failed: {e}")
+                    agent_type = "Standard Agents"
         if demo_mode:
             available_models = ["Nova Pro", "Llama 4 Scout", "Llama 3 70B", "OpenAI GPT OSS", "Qwen 3-32B", "DeepSeek R1", "Claude Opus 4.1"]
         else:
@@ -465,6 +498,22 @@ def main():
     with col2:
         st.subheader("💬 Query Interface")
         
+        # Optional POSCAR upload for Strands (auto-detected)
+        poscar_text = None
+        if agent_type == "AWS Strands":
+            st.markdown("#### 📁 Optional: POSCAR File Upload")
+            st.info("💡 Strands will auto-detect if POSCAR analysis is needed")
+            uploaded_file = st.file_uploader("Upload POSCAR file (optional)", type=['txt', 'poscar', 'POSCAR'])
+            if uploaded_file:
+                poscar_text = uploaded_file.read().decode('utf-8')
+                st.text_area("POSCAR Content:", poscar_text, height=150, disabled=True)
+            else:
+                poscar_text = st.text_area(
+                    "Or paste POSCAR content (optional):",
+                    height=100,
+                    placeholder="Si\n1.0\n5.43 0 0\n0 5.43 0\n0 0 5.43\nSi\n2\nDirect\n0.0 0.0 0.0\n0.25 0.25 0.25"
+                )
+        
         # Query input
         query = st.text_area(
             "Enter your quantum matter/materials science question:",
@@ -493,9 +542,9 @@ def main():
                     else:
                         st.info("🔧 Will use standard Materials Project API for data lookup")
                 
-                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode)
+                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text)
 
-def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False):
+def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None):
     """Generate response using selected model or demo mode"""
     
     if demo_mode:
@@ -561,14 +610,40 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     else:
                         logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
                 
-                # Generate response
-                response = model_instance.generate_response(
-                    query=query,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    top_p=top_p,
-                    include_mp_data=include_mp_data
-                )
+                # Generate response with agent framework
+                if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
+                    # Let Strands intelligently gather data first
+                    strands_result = st.session_state.strands_supervisor.intelligent_workflow_dispatch(query, poscar_text)
+                    
+                    # Now pass Strands data to the selected model for full response
+                    # Temporarily override the model's MP agent with Strands data
+                    original_mp_data = getattr(model_instance, '_cached_mp_data', None)
+                    model_instance._cached_mp_data = strands_result.get('mp_data')
+                    
+                    # Generate full model response with Strands-enhanced data
+                    response = model_instance.generate_response(
+                        query=query,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p,
+                        include_mp_data=include_mp_data
+                    )
+                    
+                    # Add Strands analysis to the response
+                    response["strands_data"] = strands_result
+                    
+                    # Restore original MP data
+                    model_instance._cached_mp_data = original_mp_data
+                    
+                else:
+                    # Use standard model
+                    response = model_instance.generate_response(
+                        query=query,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p,
+                        include_mp_data=include_mp_data
+                    )
                 
                 # Display response
                 if response:
@@ -625,6 +700,18 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         except Exception as plot_error:
                             logger.warning(f"Plot display error: {plot_error}")
                     
+                    # Strands-specific results
+                    if "strands_data" in response and response["strands_data"]:
+                        workflow_used = response["strands_data"].get('workflow_used', 'Auto-detected')
+                        st.info(f"🤖 Strands used: **{workflow_used}** workflow")
+                        
+                        # Show formatted Strands response
+                        strands_formatted = format_strands_response(response["strands_data"], workflow_used)
+                        st.markdown(strands_formatted)
+                        
+                        # Show detailed results in expandable sections
+                        display_strands_results(response["strands_data"], workflow_used)
+                    
                     # Materials Project data (if included)
                     if "mp_data" in response and response["mp_data"]:
                         st.markdown("### 🔬 Materials Project Data")
@@ -657,6 +744,177 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                 st.error(f"❌ Error generating response: {str(e)}")
                 with st.expander("🐛 Error Details"):
                     st.code(traceback.format_exc())
+
+
+# Helper functions for Strands response formatting
+def format_strands_response(strands_result: dict, workflow_type: str) -> str:
+    """Format Strands agent response for display"""
+    if not strands_result:
+        return "No Strands analysis result available"
+    
+    status = strands_result.get('status', 'unknown')
+    
+    if workflow_type == "POSCAR Analysis":
+        return f"""
+## 🎯 Strands POSCAR Analysis Results
+
+**Status:** {status}
+
+### Structure Analysis
+{format_structure_analysis(strands_result.get('structure_analysis', {}))}
+
+### DFT Parameters
+{format_dft_parameters(strands_result.get('dft_parameters', {}))}
+
+### Quantum Code Generation
+{format_quantum_code(strands_result.get('quantum_code', ''))}
+"""
+    
+    elif workflow_type == "Complex Query":
+        iterations = strands_result.get('iterations', [])
+        return f"""
+## 🔄 Strands Iterative Analysis Results
+
+**Status:** {status}
+**Iterations:** {len(iterations)}
+
+### Analysis Summary
+{format_iterative_summary(iterations)}
+
+### Final Result
+{strands_result.get('final_result', 'Analysis in progress...')}
+"""
+    
+    else:  # Simple Query
+        mcp_actions = strands_result.get('mcp_actions', [])
+        moire_params = strands_result.get('moire_params', {})
+        
+        result_text = f"""
+## 🤖 Strands Analysis Results
+
+**Status:** {status}
+
+### MCP Actions Performed
+{mcp_actions}
+
+### Analysis
+{strands_result.get('reasoning', 'Strands agent processed your query successfully.')}
+"""
+        
+        # Add moire-specific results
+        if 'moire_homobilayer' in mcp_actions and moire_params:
+            twist_angle = moire_params.get('twist_angle', 'N/A')
+            interlayer_spacing = moire_params.get('interlayer_spacing', 'N/A')
+            result_text += f"""
+
+### 🌀 Moire Bilayer Structure Generated
+- **Twist Angle:** {twist_angle}°
+- **Interlayer Spacing:** {interlayer_spacing} Å
+- **Structure Created:** ✅ Successfully generated moire bilayer
+- **Status:** Ready for quantum simulations
+"""
+        
+        return result_text
+
+def format_structure_analysis(structure_data: dict) -> str:
+    """Format structure analysis results"""
+    if not structure_data:
+        return "No structure analysis available"
+    
+    material_id = structure_data.get('material_id', 'Unknown')
+    match_score = structure_data.get('match_score', 0)
+    
+    return f"""
+- **Material ID:** {material_id}
+- **Match Score:** {match_score:.3f}
+- **Method:** {structure_data.get('reasoning', 'Strands analysis')}
+"""
+
+def format_dft_parameters(dft_data: dict) -> str:
+    """Format DFT parameters"""
+    if not dft_data:
+        return "No DFT parameters extracted"
+    
+    return f"""
+- **Hopping Parameter (t):** {dft_data.get('t_hopping', 'N/A')} eV
+- **Hubbard U:** {dft_data.get('U_onsite', 'N/A')} eV
+- **Band Gap:** {dft_data.get('band_gap_dft', 'N/A')} eV
+- **Source:** {dft_data.get('source', 'Strands estimation')}
+"""
+
+def format_quantum_code(quantum_code: str) -> str:
+    """Format quantum code generation"""
+    if not quantum_code:
+        return "No quantum code generated"
+    
+    return f"Generated quantum computing code with {len(quantum_code.split('\\n'))} lines"
+
+def format_iterative_summary(iterations: list) -> str:
+    """Format iterative analysis summary"""
+    if not iterations:
+        return "No iterations completed"
+    
+    summary = []
+    for i, iteration in enumerate(iterations, 1):
+        decision = iteration.get('decision', {})
+        action = decision.get('next_action', 'Unknown action')
+        summary.append(f"**Iteration {i}:** {action}")
+    
+    return "\\n".join(summary)
+
+def display_strands_results(strands_data: dict, workflow_type: str):
+    """Display detailed Strands results in expandable sections"""
+    
+    if workflow_type == "POSCAR Analysis":
+        # Structure matching results
+        if 'structure_analysis' in strands_data:
+            with st.expander("🔍 Structure Matching Details"):
+                st.json(strands_data['structure_analysis'])
+        
+        # DFT parameters
+        if 'dft_parameters' in strands_data:
+            with st.expander("⚛️ DFT Parameters Details"):
+                st.json(strands_data['dft_parameters'])
+        
+        # Hamiltonian code
+        if 'hamiltonian_code' in strands_data:
+            with st.expander("🧮 Generated Hamiltonian Code"):
+                st.code(strands_data['hamiltonian_code'], language="python")
+    
+    elif workflow_type == "Complex Query":
+        # Iteration details
+        iterations = strands_data.get('iterations', [])
+        if iterations:
+            with st.expander(f"🔄 Iteration Details ({len(iterations)} iterations)"):
+                for i, iteration in enumerate(iterations, 1):
+                    st.markdown(f"**Iteration {i}:**")
+                    st.json(iteration)
+                    st.markdown("---")
+    
+    elif workflow_type == "Simple Query":
+        # Moire bilayer specific results
+        mcp_actions = strands_data.get('mcp_actions', [])
+        if 'moire_homobilayer' in mcp_actions:
+            with st.expander("🌀 Moire Bilayer Generation Details"):
+                moire_params = strands_data.get('moire_params', {})
+                st.success("✅ Moire bilayer structure successfully generated!")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Twist Angle", f"{moire_params.get('twist_angle', 'N/A')}°")
+                with col2:
+                    st.metric("Interlayer Spacing", f"{moire_params.get('interlayer_spacing', 'N/A')} Å")
+                
+                st.info("💡 The moire bilayer structure has been created and is ready for quantum simulations. You can now use this structure for VQE calculations, band structure analysis, or other quantum computing applications.")
+                
+                # Show MCP actions performed
+                st.markdown("**MCP Actions Performed:**")
+                for i, action in enumerate(mcp_actions, 1):
+                    st.write(f"{i}. {action}")
+    
+    # Always show raw Strands data
+    with st.expander("🔧 Raw Strands Data"):
+        st.json(strands_data)
 
 if __name__ == "__main__":
     main()
