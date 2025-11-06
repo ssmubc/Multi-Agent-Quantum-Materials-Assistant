@@ -50,10 +50,15 @@ os.environ['MCP_LOCAL_MODE'] = '1'
 os.environ['USE_DUMMY_MP_DATA'] = '1'  # Bypass MP API hanging locally
 print("[INFO] Local development mode enabled with dummy MP data (bypasses API hanging)")
 
-# Run streamlit
+# Run streamlit with smart port selection
 try:
     print("Starting Streamlit...")
-    subprocess.run([sys.executable, "-m", "streamlit", "run", "app.py"], check=True)
+    # Try port 8501 first, fall back to 8502 if busy
+    try:
+        subprocess.run([sys.executable, "-m", "streamlit", "run", "app.py", "--server.port", "8501"], check=True)
+    except subprocess.CalledProcessError:
+        print("Port 8501 busy, trying 8502...")
+        subprocess.run([sys.executable, "-m", "streamlit", "run", "app.py", "--server.port", "8502"], check=True)
 except KeyboardInterrupt:
     print("\nStopped by user")
 except Exception as e:
