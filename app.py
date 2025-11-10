@@ -615,12 +615,15 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     # Let Strands intelligently gather data first
                     strands_result = st.session_state.strands_supervisor.intelligent_workflow_dispatch(query, poscar_text)
                     
-                    # Now pass Strands data to the selected model for full response
-                    # Temporarily override the model's MP agent with Strands data
+                    # Now pass complete Strands workflow to the selected model
+                    # Cache both MP data and full Strands context
                     original_mp_data = getattr(model_instance, '_cached_mp_data', None)
-                    model_instance._cached_mp_data = strands_result.get('mp_data')
+                    original_strands_result = getattr(model_instance, '_cached_strands_result', None)
                     
-                    # Generate full model response with Strands-enhanced data
+                    model_instance._cached_mp_data = strands_result.get('mp_data')
+                    model_instance._cached_strands_result = strands_result
+                    
+                    # Generate full model response with complete Strands context
                     response = model_instance.generate_response(
                         query=query,
                         temperature=temperature,
@@ -632,8 +635,9 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     # Add Strands analysis to the response
                     response["strands_data"] = strands_result
                     
-                    # Restore original MP data
+                    # Restore original cached data
                     model_instance._cached_mp_data = original_mp_data
+                    model_instance._cached_strands_result = original_strands_result
                     
                 else:
                     # Use standard model
@@ -667,38 +671,56 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         ("3d" in query.lower() or "plot" in query.lower() or "visualiz" in query.lower())):
                         try:
                             # Get the most recent plot result from MCP agent
-                            formula = response.get("formula", "mp-149")
+                            formula = response.get("formula", "TiO2")
                             mp_data = response.get("mp_data", {})
-                            structure_uri = mp_data.get("structure_uri")
                             
-                            if structure_uri:
-                                # Call plot_structure to get base64 image
-                                plot_result = st.session_state.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+                            st.markdown("### 🎨 3D Structure Visualization")
+                            st.info(f"🔍 Generating 3D plot for {formula}...")
+                            
+                            # First try to get plot from Strands data (avoid double MCP call)
+                            plot_result = None
+                            if "strands_data" in response and response["strands_data"]:
+                                strands_data = response["strands_data"]
+                                mcp_results = strands_data.get('mcp_results', {})
+                                if 'plot_structure' in mcp_results:
+                                    plot_result = mcp_results['plot_structure']
+                                    st.success(f"🎆 Using cached plot from Strands workflow ({len(plot_result)} chars)")
+                            
+                            # Display the plot if we have it
+                            if plot_result and len(plot_result) > 100:
+                                try:
+                                    # Clean the base64 data
+                                    image_data = plot_result.strip()
+                                    if image_data.startswith('data:image'):
+                                        image_data = image_data.split(',')[1]
+                                    
+                                    # Remove whitespace
+                                    image_data = ''.join(image_data.split())
+                                    
+                                    # Decode and display
+                                    image_bytes = base64.b64decode(image_data)
+                                    st.image(image_bytes, caption=f"3D Crystal Structure: {formula}", use_container_width=True)
+                                    st.success(f"✅ Enhanced 3D visualization for {formula}")
+                                    
+                                    # Download button
+                                    st.download_button(
+                                        label="📥 Download Structure Image",
+                                        data=image_bytes,
+                                        file_name=f"{formula}_structure.png",
+                                        mime="image/png"
+                                    )
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ Failed to display plot: {e}")
+                                    with st.expander("🔍 Debug Info"):
+                                        st.text(f"Plot data length: {len(plot_result)}")
+                                        st.text(f"First 50 chars: {plot_result[:50]}")
+                            else:
+                                st.warning("⚠️ No plot data available or data too small")
                                 
-                                if plot_result:
-                                    st.markdown("### 🎨 3D Structure Visualization")
-                                    
-                                    # Extract base64 image data
-                                    image_data = None
-                                    if isinstance(plot_result, str) and len(plot_result) > 1000:
-                                        image_data = plot_result
-                                    elif isinstance(plot_result, list) and plot_result:
-                                        image_data = plot_result[0] if isinstance(plot_result[0], str) else None
-                                    
-                                    if image_data:
-                                        try:
-                                            # Display the 3D structure image
-                                            image_bytes = base64.b64decode(image_data)
-                                            st.image(image_bytes, caption=f"3D Crystal Structure: {formula}", use_container_width=True)
-                                            st.success(f"✅ 3D structure visualization for {formula} (Crystal System: {mp_data.get('crystal_system', 'Unknown')})")
-                                        except Exception as decode_error:
-                                            st.warning(f"⚠️ 3D plot generated but display failed: {str(decode_error)}")
-                                            if st.button("🖼️ Show Plot Info"):
-                                                st.info(f"Plot data size: {len(image_data)} characters")
-                                    else:
-                                        st.info("📊 3D structure plot was generated by MCP server")
                         except Exception as plot_error:
-                            logger.warning(f"Plot display error: {plot_error}")
+                            st.error(f"❌ Plot generation failed: {str(plot_error)}")
+                            logger.error(f"Plot display error: {plot_error}")
                     
                     # Strands-specific results
                     if "strands_data" in response and response["strands_data"]:
