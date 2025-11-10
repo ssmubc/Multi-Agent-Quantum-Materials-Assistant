@@ -14,3 +14,10 @@ python-dotenv>=1.0.0
 Pillow>=10.0.0
 strands>=1.0.0
 strands-tools>=1.0.0
+
+# Enhanced MCP helper dependencies
+ase>=3.22.1
+crystal-toolkit>=2023.11.3
+kaleido>=0.2.1
+scipy>=1.10.0
+loguru>=0.7.0
