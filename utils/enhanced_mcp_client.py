@@ -287,16 +287,22 @@ class EnhancedMCPClient:
                     st.write(f"🔍 **Found in search results**: {search_data[:200]}...")
                     break
         
-        # Extract formula (try search results first, then description)
+        # Extract formula (handle both basic and enhanced formats)
         formula = None
         if search_data:
             formula_match = re.search(r"Formula: ([^\n]+)", search_data)
             if formula_match:
                 formula = formula_match.group(1).strip()
         if not formula:
+            # Try basic format first
             formula_match = re.search(r"Formula: ([^\n]+)", description)
             if formula_match:
                 formula = formula_match.group(1).strip()
+            else:
+                # Try enhanced format (Formula:\nTi30 O60)
+                enhanced_match = re.search(r"Formula:\s*\n([^\n]+)", description)
+                if enhanced_match:
+                    formula = enhanced_match.group(1).strip()
         
         if formula:
             data["formula"] = formula
@@ -340,16 +346,22 @@ class EnhancedMCPClient:
             data["formation_energy"] = -3.0
             st.write(f"❌ **Formation Energy not found**, using default: {data['formation_energy']}")
         
-        # Extract crystal system (try search results first)
+        # Extract crystal system (handle both basic and enhanced formats)
         crystal_system = None
         if search_data:
             cs_match = re.search(r"Crystal System: ([^\n]+)", search_data)
             if cs_match:
                 crystal_system = cs_match.group(1).strip()
         if not crystal_system:
+            # Try basic format first
             cs_match = re.search(r"Crystal System: ([^\n]+)", description)
             if cs_match:
                 crystal_system = cs_match.group(1).strip()
+            else:
+                # Try enhanced format (within spacegroup section)
+                enhanced_match = re.search(r"Spacegroup:.*?\nCrystal System: ([^\n]+)", description, re.DOTALL)
+                if enhanced_match:
+                    crystal_system = enhanced_match.group(1).strip()
         
         if crystal_system:
             data["crystal_system"] = crystal_system
@@ -516,15 +528,18 @@ class EnhancedMCPAgent:
         """Search for materials - returns structured data for base model"""
         logger.info(f"🚀 MCP AGENT: Starting search for query: '{query}'")
         try:
-            # Handle material ID queries
-            if query.lower().startswith("mp-"):
-                logger.info(f"📋 MCP AGENT: Detected material ID query: {query}")
-                material_data = self.client.get_material_by_id(query)
+            # Handle material ID queries - look for mp- anywhere in query
+            import re
+            mp_match = re.search(r'(mp-\d+)', query.lower())
+            if mp_match:
+                material_id = mp_match.group(1)
+                logger.info(f"📋 MCP AGENT: Detected material ID query: {material_id} from '{query}'")
+                material_data = self.client.get_material_by_id(material_id)
                 if material_data:
-                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {query}")
+                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {material_id}")
                     return material_data  # Already structured by get_material_by_id
-                logger.warning(f"❌ MCP AGENT: Material {query} not found")
-                return {"error": f"Material {query} not found"}
+                logger.warning(f"❌ MCP AGENT: Material {material_id} not found")
+                return {"error": f"Material {material_id} not found"}
             
             # Special handling for common materials to find stable phases
             from utils.material_selector import get_known_stable_phase, select_best_material_match
@@ -620,6 +635,10 @@ class EnhancedMCPAgent:
     def search_materials_by_formula(self, formula: str) -> List[str]:
         """Direct access to formula search"""
         return self.client.search_materials(formula)
+    
+    def select_material_by_id(self, material_id: str) -> Optional[Dict[str, Any]]:
+        """Select material by ID - wrapper for get_material_by_id"""
+        return self.client.get_material_by_id(material_id)
     
     def moire_homobilayer(self, bulk_structure_uri: str, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float) -> Optional[Dict[str, str]]:
         """Generate moire homobilayer structure"""
