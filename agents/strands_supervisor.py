@@ -1,13 +1,14 @@
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+
 from strands import Agent
 from strands_tools import use_aws
 from .strands_coordinator import StrandsCoordinator
 from .strands_dft_agent import StrandsDFTAgent
 from .strands_structure_agent import StrandsStructureAgent
 from .strands_agentic_loop import StrandsAgenticLoop
-import logging
-import json
-
-logger = logging.getLogger(__name__)
 
 class StrandsSupervisorAgent:
     """AWS Strands-based supervisor for quantum materials analysis"""
@@ -141,8 +142,8 @@ class StrandsSupervisorAgent:
             return {"status": "error", "message": str(e)}
     
     def _handle_moire(self, formula: str, query: str) -> dict:
-        """Handle moire bilayer requests with intelligent material mapping"""
-        # Override formula for 2D material moire queries (from original supervisor)
+        """Handle moire bilayer requests with enhanced MCP tools"""
+        # Override formula for 2D material moire queries
         query_lower = query.lower()
         moire_materials = {
             "graphene": "C",
@@ -168,73 +169,177 @@ class StrandsSupervisorAgent:
             formula = "C"
             logger.info(f"🌀 STRANDS: Generic moire request detected, defaulting to graphene (C)")
         
-        mp_data = self.mp_agent.search(formula)
-        if not mp_data or mp_data.get("error"):
+        # Use enhanced MCP tools
+        logger.info(f"🌀 STRANDS: Using enhanced search for moire material {formula}")
+        search_results = self.mp_agent.search_materials_by_formula(formula)
+        
+        if not search_results:
             return {"status": "error", "message": "Material not found"}
         
-        structure_uri = mp_data.get("structure_uri")
-        if structure_uri:
-            # Extract moire parameters from query (from original supervisor)
-            twist_angle = 1.1  # magic angle default
-            interlayer_spacing = 3.4  # default for graphene-like
-            
-            # Try to extract twist angle from query
-            import re
-            angle_match = re.search(r'(\d+\.?\d*)\s*degree', query_lower)
-            if angle_match:
-                twist_angle = float(angle_match.group(1))
-                logger.info(f"🌀 STRANDS: Extracted twist angle: {twist_angle}°")
-            
-            # Try to extract interlayer spacing
-            spacing_match = re.search(r'(\d+\.?\d*)\s*[åa]', query_lower)
-            if spacing_match:
-                interlayer_spacing = float(spacing_match.group(1))
-                logger.info(f"🌀 STRANDS: Extracted interlayer spacing: {interlayer_spacing} Å")
-            
-            moire_result = self.mp_agent.moire_homobilayer(structure_uri, interlayer_spacing, 10, twist_angle, 15.0)
-            logger.info(f"🌀 STRANDS: Called moire_homobilayer tool with {twist_angle}° twist, {interlayer_spacing} Å spacing")
-            
-            return {
-                "status": "success",
-                "mp_data": mp_data,
-                "mcp_actions": ["select_material_by_id", "get_structure_data", "moire_homobilayer"],
-                "moire_params": {"twist_angle": twist_angle, "interlayer_spacing": interlayer_spacing}
-            }
-        return {"status": "error", "message": "No structure URI"}
+        # Extract material ID from search results
+        results_text = str(search_results)
+        import re
+        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+        if not material_id_match:
+            return {"status": "error", "message": "No material ID found"}
+        
+        material_id = material_id_match.group(1)
+        detailed_data = self.mp_agent.select_material_by_id(material_id)
+        structure_uri = f"structure://mp_{material_id}"
+        
+        # Extract moire parameters from query
+        twist_angle = 1.1  # magic angle default
+        interlayer_spacing = 3.4  # default for graphene-like
+        
+        angle_match = re.search(r'(\d+\.?\d*)\s*degree', query_lower)
+        if angle_match:
+            twist_angle = float(angle_match.group(1))
+            logger.info(f"🌀 STRANDS: Extracted twist angle: {twist_angle}°")
+        
+        spacing_match = re.search(r'(\d+\.?\d*)\s*[åa]', query_lower)
+        if spacing_match:
+            interlayer_spacing = float(spacing_match.group(1))
+            logger.info(f"🌀 STRANDS: Extracted interlayer spacing: {interlayer_spacing} Å")
+        
+        # Call enhanced moire generation
+        moire_result = self.mp_agent.moire_homobilayer(structure_uri, interlayer_spacing, 10, twist_angle, 15.0)
+        logger.info(f"🌀 STRANDS: Called enhanced moire_homobilayer with {twist_angle}° twist")
+        
+        return {
+            "status": "success",
+            "mp_data": detailed_data,
+            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "moire_homobilayer"],
+            "moire_params": {"twist_angle": twist_angle, "interlayer_spacing": interlayer_spacing}
+        }
     
     def _handle_supercell(self, formula: str, query: str) -> dict:
-        """Handle supercell requests"""
-        mp_data = self.mp_agent.search(formula)
-        if not mp_data or mp_data.get("error"):
+        """Handle supercell requests using enhanced MCP tools"""
+        logger.info(f"🏗️ STRANDS: Using enhanced search for supercell material {formula}")
+        search_results = self.mp_agent.search_materials_by_formula(formula)
+        
+        if not search_results:
             return {"status": "error", "message": "Material not found"}
         
-        structure_uri = mp_data.get("structure_uri")
-        if structure_uri:
-            supercell_result = self.mp_agent.build_supercell(structure_uri, {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
-            return {"status": "success", "mp_data": mp_data, "mcp_actions": ["build_supercell"]}
-        return {"status": "error", "message": "No structure URI"}
+        # Extract material ID and get detailed data
+        results_text = str(search_results)
+        import re
+        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+        if not material_id_match:
+            return {"status": "error", "message": "No material ID found"}
+        
+        material_id = material_id_match.group(1)
+        detailed_data = self.mp_agent.select_material_by_id(material_id)
+        structure_uri = f"structure://mp_{material_id}"
+        
+        # Call enhanced supercell building
+        supercell_result = self.mp_agent.build_supercell(structure_uri, {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
+        logger.info(f"🏗️ STRANDS: Called enhanced build_supercell for {material_id}")
+        
+        return {
+            "status": "success", 
+            "mp_data": detailed_data, 
+            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "build_supercell"]
+        }
     
     def _handle_visualization(self, formula: str) -> dict:
-        """Handle visualization requests"""
-        mp_data = self.mp_agent.search(formula)
-        if not mp_data or mp_data.get("error"):
+        """Handle visualization requests using enhanced MCP tools"""
+        logger.info(f"📊 STRANDS: Using enhanced search for visualization of {formula}")
+        search_results = self.mp_agent.search_materials_by_formula(formula)
+        
+        if not search_results:
             return {"status": "error", "message": "Material not found"}
         
-        structure_uri = mp_data.get("structure_uri")
-        if structure_uri:
-            plot_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
-            return {"status": "success", "mp_data": mp_data, "mcp_actions": ["plot_structure"]}
-        return {"status": "error", "message": "No structure URI"}
+        # Extract material ID and get detailed data
+        results_text = str(search_results)
+        import re
+        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+        if not material_id_match:
+            return {"status": "error", "message": "No material ID found"}
+        
+        material_id = material_id_match.group(1)
+        detailed_data = self.mp_agent.select_material_by_id(material_id)
+        structure_uri = f"structure://mp_{material_id}"
+        
+        # Call enhanced plotting
+        plot_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+        logger.info(f"📊 STRANDS: Called enhanced plot_structure for {material_id}")
+        
+        return {
+            "status": "success", 
+            "mp_data": detailed_data, 
+            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "plot_structure"],
+            "mcp_results": {"plot_structure": plot_result}
+        }
     
     def _handle_formula_search(self, formula: str) -> dict:
-        """Handle formula search requests"""
+        """Handle formula search requests using enhanced MCP tools"""
+        logger.info(f"🔍 STRANDS: Enhanced formula search for {formula}")
         search_results = self.mp_agent.search_materials_by_formula(formula)
-        return {"status": "success", "mp_data": {"formula": formula}, "mcp_actions": ["search_materials_by_formula"]}
+        
+        # Get detailed data for first result if available
+        if search_results:
+            results_text = str(search_results)
+            import re
+            material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+            if material_id_match:
+                material_id = material_id_match.group(1)
+                detailed_data = self.mp_agent.select_material_by_id(material_id)
+                return {
+                    "status": "success", 
+                    "mp_data": detailed_data, 
+                    "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data"]
+                }
+        
+        return {"status": "success", "mp_data": search_results, "mcp_actions": ["search_materials_by_formula"]}
     
     def _handle_standard_lookup(self, formula: str) -> dict:
-        """Handle standard material lookup"""
-        mp_data = self.mp_agent.search(formula)
-        return {"status": "success" if mp_data and not mp_data.get("error") else "error", "mp_data": mp_data, "mcp_actions": ["search"]}
+        """Handle standard material lookup using enhanced MCP tools"""
+        # Check if formula is actually a material ID
+        if formula.startswith("mp-"):
+            logger.info(f"🔍 STRANDS: Using direct material ID lookup for {formula}")
+            detailed_data = self.mp_agent.search(formula)  # Use search method which handles material IDs
+            if detailed_data and "error" not in detailed_data:
+                return {
+                    "status": "success", 
+                    "mp_data": detailed_data, 
+                    "mcp_actions": ["search", "select_material_by_id", "get_structure_data"]
+                }
+            else:
+                return {"status": "error", "message": f"Material {formula} not found"}
+        
+        # Use search_materials_by_formula for enhanced data instead of basic search
+        logger.info(f"🔍 STRANDS: Using enhanced search_materials_by_formula for {formula}")
+        search_results = self.mp_agent.search_materials_by_formula(formula)
+        
+        # Check if search_results is valid (could be dict or list)
+        if search_results:
+            # Extract material ID from search results to get enhanced data
+            results_text = str(search_results)
+            import re
+            material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+            if material_id_match:
+                material_id = material_id_match.group(1)
+                logger.info(f"🔍 STRANDS: Getting enhanced data for {material_id}")
+                detailed_data = self.mp_agent.select_material_by_id(material_id)
+                return {
+                    "status": "success", 
+                    "mp_data": detailed_data, 
+                    "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data"]
+                }
+        
+        # Ensure we return proper dict format, not list
+        if search_results:
+            return {
+                "status": "success", 
+                "mp_data": {"results": search_results, "formula": formula, "count": len(search_results)}, 
+                "mcp_actions": ["search_materials_by_formula"]
+            }
+        else:
+            return {
+                "status": "success", 
+                "mp_data": {"formula": formula, "error": "no_results"}, 
+                "mcp_actions": ["search_materials_by_formula"]
+            }
     
     def process_poscar_workflow(self, poscar_text: str, query: str) -> dict:
         """Process complete POSCAR workflow using Strands coordination"""
@@ -345,8 +450,16 @@ class StrandsSupervisorAgent:
             return {"status": "error", "message": str(e), "workflow_used": "Error"}
     
     def _extract_formula_from_query(self, query: str) -> str:
-        """Extract chemical formula from query text"""
+        """Extract chemical formula from query text - check for material IDs first"""
         try:
+            # Check for material IDs first (mp-XXXX)
+            import re
+            mp_match = re.search(r'(mp-\d+)', query.lower())
+            if mp_match:
+                material_id = mp_match.group(1)
+                logger.info(f"🔍 STRANDS: Detected material ID: {material_id} - will use direct lookup")
+                return material_id  # Return the material ID instead of formula
+            
             # Common materials mentioned in queries
             materials_map = {
                 "graphene": "C", "carbon": "C", "diamond": "C",
@@ -365,7 +478,6 @@ class StrandsSupervisorAgent:
                     return formula
             
             # Try to find chemical formulas in the text
-            import re
             formula_pattern = r'\b[A-Z][a-z]?(?:\d+)?(?:[A-Z][a-z]?\d*)*\b'
             matches = re.findall(formula_pattern, query)
             if matches:
