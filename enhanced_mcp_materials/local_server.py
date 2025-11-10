@@ -25,43 +25,79 @@ mcp = FastMCP("enhanced-mcp-materials")
 # In-memory structure storage (simplified version of the official server's approach)
 structure_storage = {}
 
-class StructureData:
-    """Simplified structure data class"""
-    
-    def __init__(self, material_id: str = None, structure: Structure = None):
-        self.material_id = material_id
-        self.structure = structure
-        self.structure_id = self._generate_id()
+# Simplified structure storage
+from pymatgen.io.vasp.inputs import Poscar
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+import uuid
+import json
+
+def get_enhanced_description(structure: Structure, material_id: str = None, structure_id: str = None, properties = None) -> str:
+    """Get enhanced structure description with Materials Project properties"""
+    try:
+        description = "Structure Information [ENHANCED]\n\n"
         
-    def _generate_id(self) -> str:
-        """Generate unique structure ID"""
-        if self.material_id:
-            return f"mp_{self.material_id}"
-        else:
-            # Generate hash from structure
-            content = str(self.structure) if self.structure else "unknown"
-            return hashlib.md5(content.encode()).hexdigest()[:8]
-    
-    @property
-    def description(self) -> str:
-        """Get structure description"""
-        if not self.structure:
-            return f"Structure {self.structure_id}: No structure data"
-        
-        desc = f"Structure ID: {self.structure_id}\n"
-        desc += f"Formula: {self.structure.composition.reduced_formula}\n"
-        desc += f"Crystal Structure: {self.structure.get_space_group_info()[1]}\n"
-        desc += f"Space Group: {self.structure.get_space_group_info()[0]}\n"
-        desc += f"Lattice: a={self.structure.lattice.a:.3f}, b={self.structure.lattice.b:.3f}, c={self.structure.lattice.c:.3f}\n"
-        desc += f"Number of atoms: {len(self.structure)}"
-        return desc
-    
-    @property
-    def poscar_str(self) -> str:
-        """Get POSCAR string"""
-        if self.structure:
-            return self.structure.to(fmt="poscar")
-        return ""
+        # Enhanced spacegroup analysis
+        spg_info = ""
+        try:
+            spg_analyzer = SpacegroupAnalyzer(structure)
+            spg_symbol = spg_analyzer.get_space_group_symbol()
+            spg_number = spg_analyzer.get_space_group_number()
+            crystal_system = spg_analyzer.get_crystal_system()
+            
+            spg_info = f"""
+Spacegroup: {spg_symbol} (#{spg_number})
+Crystal System: {crystal_system}
+"""
+        except Exception:
+            pass
+
+        # Add Materials Project properties if available
+        mp_properties = ""
+        if properties:
+            if hasattr(properties, 'band_gap') and properties.band_gap is not None:
+                mp_properties += f"\nBand Gap: {properties.band_gap:.3f} eV"
+            if hasattr(properties, 'formation_energy_per_atom') and properties.formation_energy_per_atom is not None:
+                mp_properties += f"\nFormation Energy: {properties.formation_energy_per_atom:.3f} eV/atom"
+
+        description += f"""
+Material id: {material_id if material_id else 'N/A'}
+
+Formula:
+{structure.composition.formula}
+
+{spg_info}{mp_properties}
+
+Lattice Parameters:
+a={structure.lattice.a:.4f}
+b={structure.lattice.b:.4f}
+c={structure.lattice.c:.4f}
+Angles:
+alpha={structure.lattice.alpha:.4f}
+beta={structure.lattice.beta:.4f}
+gamma={structure.lattice.gamma:.4f}
+
+Number of atoms: {len(structure)}
+"""
+        return json.loads(json.dumps(description))
+    except Exception as e:
+        logger.warning(f"Enhanced description failed: {e}")
+        return f"Structure {structure_id}: Enhanced description failed"
+
+def get_poscar_str(structure: Structure) -> str:
+    """Get POSCAR string"""
+    try:
+        poscar = Poscar(structure=structure)
+        return poscar.get_str()
+    except Exception:
+        return structure.to(fmt="poscar")
+
+def generate_structure_id(material_id: str = None, structure: Structure = None) -> str:
+    """Generate unique structure ID"""
+    if material_id:
+        return f"mp_{material_id}"
+    else:
+        content = str(structure) if structure else str(uuid.uuid4())
+        return hashlib.md5(content.encode()).hexdigest()[:8]
 
 @mcp.tool()
 def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
@@ -89,9 +125,12 @@ def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
             
             descriptions = []
             for material in results[:10]:
-                # Store structure data for later use
-                structure_data = StructureData(material_id=material.material_id)
-                structure_storage[structure_data.structure_id] = structure_data
+                # Store structure info for later use
+                structure_id = generate_structure_id(material_id=material.material_id)
+                structure_storage[structure_id] = {
+                    'material_id': material.material_id,
+                    'structure': None  # Will be loaded when needed
+                }
                 
                 desc = f"Material ID: {material.material_id}\n"
                 desc += f"Formula: {material.formula_pretty}\n"
@@ -99,7 +138,7 @@ def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
                 desc += f"Crystal System: {material.symmetry.crystal_system}\n" if hasattr(material, 'symmetry') and material.symmetry and hasattr(material.symmetry, 'crystal_system') else ""
                 desc += f"Band Gap: {material.band_gap:.3f} eV\n" if material.band_gap else "Band Gap: N/A\n"
                 desc += f"Formation Energy: {material.formation_energy_per_atom:.3f} eV/atom\n" if material.formation_energy_per_atom else ""
-                desc += f"Structure ID: {structure_data.structure_id}\n"
+                desc += f"Structure ID: {structure_id}\n"
                 desc += "---"
                 descriptions.append(TextContent(type="text", text=desc))
             
@@ -124,7 +163,6 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
     
     try:
         with MPRester(api_key) as mpr:
-            # Get both structure and material properties
             structure = mpr.get_structure_by_material_id(material_id)
             if not structure:
                 return [TextContent(type="text", text=f"Material not found: {material_id}")]
@@ -135,33 +173,18 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
                 fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
             )
             
-            # Create enhanced description with properties
-            desc = f"Structure ID: mp_{material_id}\n"
-            desc += f"Formula: {structure.composition.reduced_formula}\n"
-            desc += f"Crystal Structure: {structure.get_space_group_info()[1]}\n"
-            desc += f"Space Group: {structure.get_space_group_info()[0]}\n"
+            structure_id = generate_structure_id(material_id=material_id)
+            structure_storage[structure_id] = {
+                'material_id': material_id,
+                'structure': structure,
+                'properties': material_data[0] if material_data else None
+            }
             
-            # Add materials project data if available
-            if material_data:
-                mat = material_data[0]
-                if hasattr(mat, 'band_gap') and mat.band_gap is not None:
-                    desc += f"Band Gap: {mat.band_gap:.3f} eV\n"
-                if hasattr(mat, 'formation_energy_per_atom') and mat.formation_energy_per_atom is not None:
-                    desc += f"Formation Energy: {mat.formation_energy_per_atom:.3f} eV/atom\n"
-                if hasattr(mat, 'symmetry') and mat.symmetry and hasattr(mat.symmetry, 'crystal_system'):
-                    desc += f"Crystal System: {mat.symmetry.crystal_system}\n"
-            
-            desc += f"Lattice: a={structure.lattice.a:.3f}, b={structure.lattice.b:.3f}, c={structure.lattice.c:.3f}\n"
-            desc += f"Number of atoms: {len(structure)}"
-            
-            # Create structure data
-            structure_data = StructureData(material_id=material_id, structure=structure)
-            structure_storage[structure_data.structure_id] = structure_data
-            
-            structure_uri = f"structure://{structure_data.structure_id}"
+            structure_uri = f"structure://{structure_id}"
+            description = get_enhanced_description(structure, material_id, structure_id, material_data[0] if material_data else None)
             
             return [
-                TextContent(type="text", text=desc),
+                TextContent(type="text", text=description),
                 TextContent(type="text", text=f"structure uri: {structure_uri}")
             ]
             
@@ -184,16 +207,17 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     if structure_id not in structure_storage:
         return [TextContent(type="text", text="Structure not found")]
     
-    structure_data = structure_storage[structure_id]
+    structure_info = structure_storage[structure_id]
+    structure = structure_info.get('structure')
     
-    if not structure_data.structure:
+    if not structure:
         return [TextContent(type="text", text="No structure data available")]
     
     try:
         if format == "cif":
-            structure_str = structure_data.structure.to(fmt="cif")
+            structure_str = structure.to(fmt="cif")
         else:  # poscar
-            structure_str = structure_data.poscar_str
+            structure_str = get_poscar_str(structure)
         
         return [TextContent(type="text", text=structure_str)]
         
@@ -212,14 +236,18 @@ def create_structure_from_poscar(poscar_str: str) -> List[TextContent]:
     """
     try:
         structure = Structure.from_str(poscar_str, fmt="poscar")
-        structure_data = StructureData(structure=structure)
-        structure_storage[structure_data.structure_id] = structure_data
+        structure_id = generate_structure_id(structure=structure)
+        structure_storage[structure_id] = {
+            'material_id': None,
+            'structure': structure
+        }
         
-        structure_uri = f"structure://{structure_data.structure_id}"
+        structure_uri = f"structure://{structure_id}"
+        description = get_enhanced_description(structure, None, structure_id)
         
         return [
             TextContent(type="text", text=f"A new structure is created with the structure uri: {structure_uri}"),
-            TextContent(type="text", text=structure_data.description)
+            TextContent(type="text", text=description)
         ]
         
     except Exception as e:
@@ -237,14 +265,18 @@ def create_structure_from_cif(cif_str: str) -> List[TextContent]:
     """
     try:
         structure = Structure.from_str(cif_str, fmt="cif")
-        structure_data = StructureData(structure=structure)
-        structure_storage[structure_data.structure_id] = structure_data
+        structure_id = generate_structure_id(structure=structure)
+        structure_storage[structure_id] = {
+            'material_id': None,
+            'structure': structure
+        }
         
-        structure_uri = f"structure://{structure_data.structure_id}"
+        structure_uri = f"structure://{structure_id}"
+        description = get_enhanced_description(structure, None, structure_id)
         
         return [
             TextContent(type="text", text=f"A new structure is created with the structure uri: {structure_uri}"),
-            TextContent(type="text", text=structure_data.description)
+            TextContent(type="text", text=description)
         ]
         
     except Exception as e:
@@ -266,17 +298,16 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
     if structure_id not in structure_storage:
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
-    structure_data = structure_storage[structure_id]
+    structure_info = structure_storage[structure_id]
+    structure = structure_info.get('structure')
     
-    if not structure_data.structure:
+    if not structure:
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     try:
         # Create a simple 3D plot using matplotlib
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
-        
-        structure = structure_data.structure
         
         # Plot atoms
         for site in structure:
@@ -337,9 +368,10 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
     if structure_id not in structure_storage:
         return [TextContent(type="text", text="Bulk structure not found")]
     
-    bulk_data = structure_storage[structure_id]
+    structure_info = structure_storage[structure_id]
+    bulk_structure = structure_info.get('structure')
     
-    if not bulk_data.structure:
+    if not bulk_structure:
         return [TextContent(type="text", text="No bulk structure data available")]
     
     try:
@@ -347,18 +379,21 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
         scaling_matrix = supercell_parameters.get("scaling_matrix", [[2,0,0],[0,2,0],[0,0,2]])
         
         # Create supercell using pymatgen
-        supercell = bulk_data.structure.make_supercell(scaling_matrix)
+        supercell = bulk_structure.make_supercell(scaling_matrix)
         
         # Create new structure data for supercell
-        supercell_data = StructureData(structure=supercell)
-        structure_storage[supercell_data.structure_id] = supercell_data
+        supercell_id = generate_structure_id(structure=supercell)
+        structure_storage[supercell_id] = {
+            'material_id': None,
+            'structure': supercell
+        }
         
-        supercell_uri = f"structure://{supercell_data.structure_id}"
+        supercell_uri = f"structure://{supercell_id}"
         
         # Create description
         desc = f"Supercell created from {bulk_structure_uri}\n"
         desc += f"Scaling matrix: {scaling_matrix}\n"
-        desc += f"Original atoms: {len(bulk_data.structure)}\n"
+        desc += f"Original atoms: {len(bulk_structure)}\n"
         desc += f"Supercell atoms: {len(supercell)}\n"
         desc += f"Formula: {supercell.composition.reduced_formula}\n"
         desc += f"Lattice: a={supercell.lattice.a:.3f}, b={supercell.lattice.b:.3f}, c={supercell.lattice.c:.3f}"
@@ -390,16 +425,14 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
     if structure_id not in structure_storage:
         return [TextContent(type="text", text="Bulk structure not found")]
     
-    bulk_data = structure_storage[structure_id]
+    structure_info = structure_storage[structure_id]
+    bulk_structure = structure_info.get('structure')
     
-    if not bulk_data.structure:
+    if not bulk_structure:
         return [TextContent(type="text", text="No bulk structure data available")]
     
     try:
         # Simplified moire bilayer generation
-        bulk_structure = bulk_data.structure
-        
-        # Create two layers with twist
         import numpy as np
         
         # Get the original structure
@@ -439,10 +472,13 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         moire_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
         
         # Store the moire structure
-        moire_data = StructureData(structure=moire_structure)
-        structure_storage[moire_data.structure_id] = moire_data
+        moire_id = generate_structure_id(structure=moire_structure)
+        structure_storage[moire_id] = {
+            'material_id': None,
+            'structure': moire_structure
+        }
         
-        moire_uri = f"structure://{moire_data.structure_id}"
+        moire_uri = f"structure://{moire_id}"
         
         return [TextContent(type="text", text=f"Moire structure is created with the structure uri: {moire_uri}")]
         
