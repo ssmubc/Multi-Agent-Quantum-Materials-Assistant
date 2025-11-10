@@ -104,13 +104,15 @@ store_mp_api_key("your_mp_api_key_here")
 
 ## Usage
 
+### Local Development
+
 1. **Start the Streamlit app:**
 ```bash
 streamlit run app.py
 ```
 
 2. **Configure the application:**
-   - Verify AWS credentials are detected
+   - Verify AWS credentials are detected (uses AWS SSO/profiles for local dev)
    - Set up Materials Project API key
    - Check model status in sidebar
 
@@ -119,6 +121,10 @@ streamlit run app.py
    - Enter your quantum/materials science question
    - Adjust parameters if needed
    - Generate and compare responses
+
+### Production Deployment
+
+For Elastic Beanstalk deployment, the application automatically uses IAM instance profiles - **no hardcoded credentials or ARNs required**. The app dynamically detects available AWS authentication at runtime and complies with enterprise security policies that prohibit long-term credential storage.
 
 ## Example Queries
 
