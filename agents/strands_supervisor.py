@@ -1,5 +1,7 @@
 import logging
 import json
+import re
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +11,7 @@ from .strands_coordinator import StrandsCoordinator
 from .strands_dft_agent import StrandsDFTAgent
 from .strands_structure_agent import StrandsStructureAgent
 from .strands_agentic_loop import StrandsAgenticLoop
+from utils.braket_integration import braket_integration
 
 class StrandsSupervisorAgent:
     """AWS Strands-based supervisor for quantum materials analysis"""
@@ -53,6 +56,11 @@ class StrandsSupervisorAgent:
     
     def process_query(self, query: str, formula: str = "") -> dict:
         """Process query using Strands agent with MCP integration"""
+        # Check for Braket-specific queries first
+        if self._is_braket_query(query):
+            logger.info("⚛️ STRANDS: Braket query detected, routing to Braket MCP")
+            return self._handle_braket_query(query)
+        
         # Extract formula from query if not provided
         if not formula:
             formula = self._extract_formula_from_query(query)
@@ -99,7 +107,6 @@ class StrandsSupervisorAgent:
         """Extract action from Strands agent response"""
         try:
             # Try to find JSON in response
-            import re
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
@@ -130,6 +137,8 @@ class StrandsSupervisorAgent:
                 return self._handle_moire(formula, query)
             elif action == "build_supercell":
                 return self._handle_supercell(formula, query)
+            elif action == "create_structure_from_poscar":
+                return self._handle_poscar_creation(query)
             elif action == "plot_structure":
                 return self._handle_visualization(formula)
             elif action == "search_materials_by_formula":
@@ -157,6 +166,40 @@ class StrandsSupervisorAgent:
             "stanene": "Sn", "plumbene": "Pb"
         }
         
+        # Force graphite for graphene queries
+        if "graphene" in query_lower:
+            logger.info(f"🌀 STRANDS: Forcing graphite (mp-48) for graphene moire request")
+            try:
+                detailed_data = self.mp_agent.select_material_by_id("mp-48")
+                if detailed_data and "error" not in str(detailed_data):
+                    structure_uri = "structure://mp_mp-48"
+                    logger.info(f"✅ STRANDS: Using graphite mp-48 for moire generation")
+                else:
+                    logger.warning(f"⚠️ STRANDS: mp-48 not available, falling back to search")
+                    detailed_data = None
+            except Exception as e:
+                logger.error(f"❌ STRANDS: Failed to get mp-48: {e}")
+                detailed_data = None
+            
+            if detailed_data:
+                # Skip search, use mp-48 directly
+                twist_angle = 1.1  # magic angle default
+                interlayer_spacing = 3.4  # default for graphene
+                
+                angle_match = re.search(r'(\d+\.?\d*)\s*degree', query_lower)
+                if angle_match:
+                    twist_angle = float(angle_match.group(1))
+                
+                moire_result = self.mp_agent.moire_homobilayer(structure_uri, interlayer_spacing, 10, twist_angle, 15.0)
+                
+                return {
+                    "status": "success",
+                    "mp_data": detailed_data,
+                    "mcp_actions": ["select_material_by_id", "moire_homobilayer"],
+                    "moire_params": {"twist_angle": twist_angle, "interlayer_spacing": interlayer_spacing},
+                    "mcp_results": {"moire_homobilayer": moire_result}
+                }
+        
         original_formula = formula
         for material_name, material_formula in moire_materials.items():
             if material_name in query_lower:
@@ -169,7 +212,7 @@ class StrandsSupervisorAgent:
             formula = "C"
             logger.info(f"🌀 STRANDS: Generic moire request detected, defaulting to graphene (C)")
         
-        # Use enhanced MCP tools
+        # Continue with search for non-graphene materials
         logger.info(f"🌀 STRANDS: Using enhanced search for moire material {formula}")
         search_results = self.mp_agent.search_materials_by_formula(formula)
         
@@ -178,7 +221,6 @@ class StrandsSupervisorAgent:
         
         # Extract material ID from search results
         results_text = str(search_results)
-        import re
         material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
         if not material_id_match:
             return {"status": "error", "message": "No material ID found"}
@@ -209,7 +251,48 @@ class StrandsSupervisorAgent:
             "status": "success",
             "mp_data": detailed_data,
             "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "moire_homobilayer"],
-            "moire_params": {"twist_angle": twist_angle, "interlayer_spacing": interlayer_spacing}
+            "moire_params": {"twist_angle": twist_angle, "interlayer_spacing": interlayer_spacing},
+            "mcp_results": {"moire_homobilayer": moire_result}
+        }
+    
+    def _handle_poscar_creation(self, query: str) -> dict:
+        """Handle POSCAR structure creation requests"""
+        # Extract POSCAR data from query if provided
+        poscar_data = None
+        if "POSCAR" in query or "poscar" in query:
+            # Try to extract POSCAR from query text
+            lines = query.split('\n')
+            poscar_lines = []
+            in_poscar = False
+            for line in lines:
+                if "POSCAR" in line or "poscar" in line or in_poscar:
+                    in_poscar = True
+                    if line.strip() and not "POSCAR" in line:
+                        poscar_lines.append(line)
+            if poscar_lines:
+                poscar_data = '\n'.join(poscar_lines)
+        
+        if not poscar_data:
+            # Use a simple example POSCAR for demonstration
+            poscar_data = """Si
+1.0
+5.43 0 0
+0 5.43 0
+0 0 5.43
+Si
+2
+Direct
+0.0 0.0 0.0
+0.25 0.25 0.25"""
+        
+        logger.info(f"📋 STRANDS: Creating structure from POSCAR data")
+        poscar_result = self.mp_agent.create_structure_from_poscar(poscar_data)
+        
+        return {
+            "status": "success",
+            "mp_data": {"source": "POSCAR creation", "formula": "Custom structure"},
+            "mcp_actions": ["create_structure_from_poscar"],
+            "mcp_results": {"create_structure_from_poscar": poscar_result}
         }
     
     def _handle_supercell(self, formula: str, query: str) -> dict:
@@ -222,7 +305,6 @@ class StrandsSupervisorAgent:
         
         # Extract material ID and get detailed data
         results_text = str(search_results)
-        import re
         material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
         if not material_id_match:
             return {"status": "error", "message": "No material ID found"}
@@ -238,7 +320,8 @@ class StrandsSupervisorAgent:
         return {
             "status": "success", 
             "mp_data": detailed_data, 
-            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "build_supercell"]
+            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "build_supercell"],
+            "mcp_results": {"build_supercell": supercell_result}
         }
     
     def _handle_visualization(self, formula: str) -> dict:
@@ -251,7 +334,6 @@ class StrandsSupervisorAgent:
         
         # Extract material ID and get detailed data
         results_text = str(search_results)
-        import re
         material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
         if not material_id_match:
             return {"status": "error", "message": "No material ID found"}
@@ -279,7 +361,6 @@ class StrandsSupervisorAgent:
         # Get detailed data for first result if available
         if search_results:
             results_text = str(search_results)
-            import re
             material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
             if material_id_match:
                 material_id = material_id_match.group(1)
@@ -287,7 +368,8 @@ class StrandsSupervisorAgent:
                 return {
                     "status": "success", 
                     "mp_data": detailed_data, 
-                    "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data"]
+                    "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data"],
+                    "mcp_results": {"select_material_by_id": detailed_data}
                 }
         
         return {"status": "success", "mp_data": search_results, "mcp_actions": ["search_materials_by_formula"]}
@@ -296,50 +378,79 @@ class StrandsSupervisorAgent:
         """Handle standard material lookup using enhanced MCP tools"""
         # Check if formula is actually a material ID
         if formula.startswith("mp-"):
-            logger.info(f"🔍 STRANDS: Using direct material ID lookup for {formula}")
-            detailed_data = self.mp_agent.search(formula)  # Use search method which handles material IDs
-            if detailed_data and "error" not in detailed_data:
+            logger.info(f"🔍 STRANDS: Using enhanced material ID lookup for {formula}")
+            try:
+                detailed_data = self.mp_agent.select_material_by_id(formula)
+                if detailed_data and "error" not in detailed_data:
+                    return {
+                        "status": "success", 
+                        "mp_data": detailed_data, 
+                        "mcp_actions": ["select_material_by_id", "get_structure_data"],
+                        "mcp_results": {"select_material_by_id": detailed_data}
+                    }
+                else:
+                    return {"status": "error", "message": f"Material {formula} not found"}
+            except Exception as e:
+                logger.error(f"💥 STRANDS: Material ID lookup failed: {e}")
+                return {"status": "error", "message": f"Material lookup failed: {str(e)}"}
+        
+        # Try search_materials_by_formula first, but handle failures gracefully
+        try:
+            logger.info(f"🔍 STRANDS: Using enhanced search_materials_by_formula for {formula}")
+            search_results = self.mp_agent.search_materials_by_formula(formula)
+            
+            # Check if search_results is valid (could be dict or list)
+            if search_results and "error" not in str(search_results).lower():
+                # Extract material ID from search results to get enhanced data
+                results_text = str(search_results)
+                material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                if material_id_match:
+                    material_id = material_id_match.group(1)
+                    logger.info(f"🔍 STRANDS: Getting enhanced data for {material_id}")
+                    try:
+                        detailed_data = self.mp_agent.select_material_by_id(material_id)
+                        return {
+                            "status": "success", 
+                            "mp_data": detailed_data, 
+                            "mcp_actions": ["select_material_by_id", "get_structure_data"],
+                            "mcp_results": {"select_material_by_id": detailed_data}
+                        }
+                    except Exception as e:
+                        logger.error(f"💥 STRANDS: Enhanced data retrieval failed: {e}")
+                        # Fall through to basic search results
+                
+                # Return basic search results if enhanced lookup fails
                 return {
                     "status": "success", 
-                    "mp_data": detailed_data, 
-                    "mcp_actions": ["search", "select_material_by_id", "get_structure_data"]
+                    "mp_data": {"results": search_results, "formula": formula, "count": len(search_results) if isinstance(search_results, list) else 1}, 
+                    "mcp_actions": ["search_materials_by_formula"]
                 }
             else:
-                return {"status": "error", "message": f"Material {formula} not found"}
+                logger.warning(f"⚠️ STRANDS: Search by formula failed or returned error for {formula}")
+                
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Search by formula failed: {e}")
         
-        # Use search_materials_by_formula for enhanced data instead of basic search
-        logger.info(f"🔍 STRANDS: Using enhanced search_materials_by_formula for {formula}")
-        search_results = self.mp_agent.search_materials_by_formula(formula)
-        
-        # Check if search_results is valid (could be dict or list)
-        if search_results:
-            # Extract material ID from search results to get enhanced data
-            results_text = str(search_results)
-            import re
-            material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
-            if material_id_match:
-                material_id = material_id_match.group(1)
-                logger.info(f"🔍 STRANDS: Getting enhanced data for {material_id}")
-                detailed_data = self.mp_agent.select_material_by_id(material_id)
+        # Fallback: try basic search if formula search fails
+        try:
+            logger.info(f"🔄 STRANDS: Falling back to basic search for {formula}")
+            basic_results = self.mp_agent.search(formula)
+            if basic_results and "error" not in str(basic_results).lower():
                 return {
                     "status": "success", 
-                    "mp_data": detailed_data, 
-                    "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data"]
+                    "mp_data": basic_results, 
+                    "mcp_actions": ["search"]
                 }
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Basic search also failed: {e}")
         
-        # Ensure we return proper dict format, not list
-        if search_results:
-            return {
-                "status": "success", 
-                "mp_data": {"results": search_results, "formula": formula, "count": len(search_results)}, 
-                "mcp_actions": ["search_materials_by_formula"]
-            }
-        else:
-            return {
-                "status": "success", 
-                "mp_data": {"formula": formula, "error": "no_results"}, 
-                "mcp_actions": ["search_materials_by_formula"]
-            }
+        # Final fallback: return error but don't crash
+        return {
+            "status": "error", 
+            "message": f"Material not found", 
+            "mcp_actions": [],
+            "workflow_used": "Simple Query"
+        }
     
     def process_poscar_workflow(self, poscar_text: str, query: str) -> dict:
         """Process complete POSCAR workflow using Strands coordination"""
@@ -378,7 +489,6 @@ class StrandsSupervisorAgent:
         
         try:
             response = self.agent(complexity_check)
-            import re
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 complexity = json.loads(json_match.group())
@@ -405,6 +515,13 @@ class StrandsSupervisorAgent:
                 return result
             
             # Check for complex query indicators using Strands intelligence
+            # Quick check for simple material ID queries
+            if re.search(r'mp-\d+', query.lower()):
+                logger.info("📝 STRANDS: Material ID detected, using simple workflow")
+                result = self.process_query(query, "")
+                result['workflow_used'] = 'Simple Query'
+                return result
+            
             complexity_prompt = f"""Analyze this query for complexity: "{query}"
             
             Complex indicators:
@@ -412,6 +529,12 @@ class StrandsSupervisorAgent:
             - Optimization or parameter tuning requests  
             - Multi-step analysis requirements
             - "compare", "optimize", "find best", "analyze multiple"
+            
+            Simple indicators:
+            - Single material requests (mp-149, TiO2, etc.)
+            - VQE ansatz generation for one material
+            - POSCAR format requests
+            - Single structure analysis
             
             Return JSON: {{"complex": bool, "reasoning": "string"}}"""
             
@@ -421,7 +544,6 @@ class StrandsSupervisorAgent:
                 response_text = getattr(response, 'text', str(response))
                 logger.info(f"✅ STRANDS: Claude response received: {len(response_text)} chars")
                 
-                import re
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     complexity = json.loads(json_match.group())
@@ -453,11 +575,11 @@ class StrandsSupervisorAgent:
         """Extract chemical formula from query text - check for material IDs first"""
         try:
             # Check for material IDs first (mp-XXXX)
-            import re
             mp_match = re.search(r'(mp-\d+)', query.lower())
             if mp_match:
                 material_id = mp_match.group(1)
                 logger.info(f"🔍 STRANDS: Detected material ID: {material_id} - will use direct lookup")
+                # For material ID queries, return the ID but mark as simple
                 return material_id  # Return the material ID instead of formula
             
             # Common materials mentioned in queries
@@ -494,13 +616,190 @@ class StrandsSupervisorAgent:
             logger.error(f"💥 STRANDS: Formula extraction failed: {e}")
             return "Si"
     
+    def _is_braket_query(self, query: str) -> bool:
+        """Detect if query is Braket-specific"""
+        query_lower = query.lower()
+        
+        # High priority Braket indicators (always route to Braket)
+        high_priority_keywords = [
+            'braket', 'amazon braket', 'aws braket', 'braket mcp',
+            'list devices', 'quantum device', 'quantum simulator',
+            'sv1', 'dm1', 'braket server'
+        ]
+        
+        # VQE and quantum algorithm keywords
+        vqe_keywords = [
+            'vqe', 'variational quantum eigensolver',
+            'quantum circuit for', 'ansatz', 'hamiltonian simulation'
+        ]
+        
+        # Circuit-specific keywords (route to Braket if combined with circuit terms)
+        circuit_keywords = [
+            'bell pair', 'bell state', 'bell circuit',
+            'ghz state', 'ghz circuit', 'ghz',
+            'ascii diagram', 'ascii circuit', 'circuit diagram',
+            'quantum fourier transform', 'qft circuit',
+            'run circuit', 'execute circuit', 'quantum task'
+        ]
+        
+        # Check high priority first
+        if any(keyword in query_lower for keyword in high_priority_keywords):
+            return True
+        
+        # Check VQE keywords
+        if any(keyword in query_lower for keyword in vqe_keywords):
+            return True
+        
+        # Check for material + circuit combinations
+        materials = ['graphene', 'h2', 'hydrogen', 'tio2', 'sio2', 'diamond', 'silicon']
+        if any(material in query_lower for material in materials) and 'circuit' in query_lower:
+            return True
+        
+        # Check circuit keywords combined with circuit/quantum terms
+        circuit_terms = ['circuit', 'quantum', 'entanglement', 'superposition']
+        if any(keyword in query_lower for keyword in circuit_keywords):
+            if any(term in query_lower for term in circuit_terms):
+                return True
+        
+        return False
+    
+    def _handle_braket_query(self, query: str) -> dict:
+        """Handle Braket-specific queries using Braket MCP integration"""
+        if not braket_integration.is_available():
+            return {
+                "status": "error", 
+                "message": "Braket MCP not available. Install dependencies: pip install amazon-braket-sdk qiskit-braket-provider fastmcp"
+            }
+        
+        query_lower = query.lower()
+        
+        try:
+            # VQE circuits with materials
+            if 'vqe' in query_lower or ('variational' in query_lower and 'quantum' in query_lower):
+                logger.info("⚙️ STRANDS: Creating VQE circuit with material data")
+                # Extract material from query or use default
+                material_data = self._extract_material_context(query)
+                result = braket_integration.create_vqe_circuit(material_data)
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["create_vqe_circuit"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": f"VQE circuit generation for {material_data.get('formula', 'material')} using Amazon Braket MCP"
+                }
+            
+            # Bell pair circuits
+            elif 'bell' in query_lower and ('pair' in query_lower or 'state' in query_lower or 'circuit' in query_lower):
+                logger.info("🔔 STRANDS: Creating Bell pair circuit with Braket MCP")
+                result = braket_integration.create_bell_pair_circuit()
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["create_bell_pair_circuit"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": "Bell state circuit generation using Amazon Braket MCP"
+                }
+            
+            # GHZ circuits
+            elif 'ghz' in query_lower:
+                # Extract number of qubits if specified
+                qubit_match = re.search(r'(\d+)\s*qubit', query_lower)
+                num_qubits = int(qubit_match.group(1)) if qubit_match else 3
+                
+                logger.info(f"🌀 STRANDS: Creating {num_qubits}-qubit GHZ circuit with Braket MCP")
+                result = braket_integration.create_ghz_circuit(num_qubits)
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["create_ghz_circuit"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": f"{num_qubits}-qubit GHZ state circuit generation using Amazon Braket MCP"
+                }
+            
+            # Device listing
+            elif 'device' in query_lower and ('list' in query_lower or 'available' in query_lower or 'status' in query_lower):
+                logger.info("🖥️ STRANDS: Listing Braket devices")
+                result = braket_integration.list_braket_devices()
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["list_braket_devices"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": "Amazon Braket device listing and status check"
+                }
+            
+            # Material-specific circuit creation
+            elif ('circuit' in query_lower and any(material in query_lower for material in ['graphene', 'h2', 'tio2', 'sio2', 'diamond'])):
+                logger.info("🧬 STRANDS: Creating material-specific VQE circuit")
+                material_data = self._extract_material_context(query)
+                result = braket_integration.create_vqe_circuit(material_data)
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["create_vqe_circuit"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": f"Material-specific VQE circuit for {material_data.get('formula', 'material')} using Amazon Braket MCP"
+                }
+            
+            # Custom circuit creation
+            elif 'circuit' in query_lower and ('create' in query_lower or 'build' in query_lower or 'generate' in query_lower):
+                logger.info("🔧 STRANDS: Creating custom circuit with Braket MCP")
+                # Default to Bell pair for custom requests
+                result = braket_integration.create_bell_pair_circuit()
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["create_custom_circuit"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": "Custom quantum circuit generation using Amazon Braket MCP"
+                }
+            
+            # General Braket status
+            else:
+                logger.info("📊 STRANDS: Getting Braket status and capabilities")
+                result = braket_integration.get_braket_status()
+                return {
+                    "status": "success",
+                    "braket_data": result,
+                    "mcp_actions": ["get_braket_status"],
+                    "workflow_used": "Braket MCP",
+                    "reasoning": "Amazon Braket MCP status and capabilities check"
+                }
+                
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Braket query failed: {e}")
+            return {"status": "error", "message": f"Braket query failed: {str(e)}"}
+    
+    def _extract_material_context(self, query: str) -> Dict[str, Any]:
+        """Extract material information from query for Braket circuit generation."""
+        query_lower = query.lower()
+        
+        # Material mapping
+        material_map = {
+            'graphene': {'formula': 'C', 'band_gap': 0.0, 'formation_energy': 0.0, 'crystal_system': 'hexagonal'},
+            'diamond': {'formula': 'C', 'band_gap': 5.5, 'formation_energy': 0.0, 'crystal_system': 'cubic'},
+            'h2': {'formula': 'H2', 'band_gap': 8.0, 'formation_energy': 0.0, 'crystal_system': 'molecular'},
+            'hydrogen': {'formula': 'H2', 'band_gap': 8.0, 'formation_energy': 0.0, 'crystal_system': 'molecular'},
+            'tio2': {'formula': 'TiO2', 'band_gap': 3.2, 'formation_energy': -2.5, 'crystal_system': 'tetragonal'},
+            'sio2': {'formula': 'SiO2', 'band_gap': 9.0, 'formation_energy': -1.8, 'crystal_system': 'hexagonal'},
+            'silicon': {'formula': 'Si', 'band_gap': 1.1, 'formation_energy': 0.0, 'crystal_system': 'cubic'}
+        }
+        
+        # Check for material mentions
+        for material, data in material_map.items():
+            if material in query_lower:
+                logger.info(f"🧬 STRANDS: Detected material {material} in query")
+                return data
+        
+        # Default to H2 for VQE queries
+        return {'formula': 'H2', 'band_gap': 8.0, 'formation_energy': 0.0, 'crystal_system': 'molecular'}
+    
     def _extract_formula_from_poscar(self, poscar_text: str) -> str:
         """Extract chemical formula from POSCAR (from original supervisor)"""
         try:
             lines = poscar_text.strip().split('\n')
             for i, line in enumerate(lines[:10]):
                 line = line.strip()
-                import re
                 if re.match(r'^[A-Z][a-z]?(?:\s+[A-Z][a-z]?)*$', line):
                     elements = line.split()
                     if i + 1 < len(lines):
