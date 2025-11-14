@@ -29,13 +29,37 @@ def ensure_structure_object(structure_data):
             return None
     return structure_data
 
+# Try to import enhanced structure data classes
+try:
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
+    from enhanced_structure_data import EnhancedStructureData
+    from enhanced_data_class import EnhancedStructureData as EnhancedDataClass
+    ENHANCED_AVAILABLE = True
+except ImportError:
+    ENHANCED_AVAILABLE = False
+
 class StructureData:
-    """Simplified structure data class"""
+    """Structure data class with enhanced features when available"""
     
     def __init__(self, material_id: str = None, structure = None):
         self.material_id = material_id
         self.structure = ensure_structure_object(structure)
         self.structure_id = self._generate_id()
+        
+        # Try to create enhanced version if available
+        if ENHANCED_AVAILABLE and self.structure:
+            try:
+                self.enhanced = EnhancedStructureData(
+                    structure=self.structure,
+                    structure_id=self.structure_id,
+                    material_id=material_id
+                )
+            except Exception:
+                self.enhanced = None
+        else:
+            self.enhanced = None
         
     def _generate_id(self) -> str:
         """Generate unique structure ID"""
@@ -48,7 +72,10 @@ class StructureData:
     
     @property
     def description(self) -> str:
-        """Get structure description"""
+        """Get structure description (enhanced if available)"""
+        if self.enhanced:
+            return self.enhanced.description
+        
         if not self.structure:
             return f"Structure {self.structure_id}: No structure data"
         
@@ -62,7 +89,10 @@ class StructureData:
     
     @property
     def poscar_str(self) -> str:
-        """Get POSCAR string"""
+        """Get POSCAR string (enhanced if available)"""
+        if self.enhanced:
+            return self.enhanced.poscar_str
+        
         if self.structure:
             return self.structure.to(fmt="poscar")
         return ""
@@ -172,6 +202,10 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
             structure_data = StructureData(material_id=material_id, structure=structure)
             structure_storage[structure_data.structure_id] = structure_data
             
+            # Log storage for debugging
+            logger.info(f"Stored structure {structure_data.structure_id} for material {material_id}")
+            logger.info(f"Total structures in storage: {len(structure_storage)}")
+            
             structure_uri = f"structure://{structure_data.structure_id}"
             
             return [
@@ -271,7 +305,7 @@ def create_structure_from_cif(cif_str: str) -> List[TextContent]:
 
 @mcp.tool()
 def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> List[ImageContent]:
-    """Visualize the crystal structure
+    """Visualize the crystal structure with enhanced 3D plotting
     
     Args:
         structure_uri: The URI of the structure
@@ -291,6 +325,35 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     try:
+        # Try enhanced plotting first (use enhanced structure if available)
+        try:
+            if structure_data.enhanced:
+                # Use enhanced structure data plotting
+                img_base64 = structure_data.enhanced.plot_structure_ct(duplication)
+                if img_base64:
+                    logger.info(f"Enhanced structure data plot generated for {structure_uri}")
+                    return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
+            
+            # Fallback to enhanced plot helper
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
+            from enhanced_plot_helper import plot_structure_enhanced
+            
+            img_base64 = plot_structure_enhanced(structure_data.structure, duplication)
+            
+            if img_base64:
+                logger.info(f"Enhanced plot helper generated for {structure_uri}")
+                return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
+            else:
+                logger.warning("Enhanced plotting returned empty result, using fallback")
+                
+        except ImportError as ie:
+            logger.warning(f"Enhanced plotting not available: {ie}, using fallback")
+        except Exception as ee:
+            logger.warning(f"Enhanced plotting failed: {ee}, using fallback")
+        
+        # Fallback to matplotlib plotting
         import matplotlib.pyplot as plt
         
         # Create a simple 3D plot using matplotlib
@@ -356,8 +419,12 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
     """
     structure_id = bulk_structure_uri.replace("structure://", "")
     
+    # Debug: show what structures we have
+    logger.info(f"Looking for structure {structure_id} in storage with {len(structure_storage)} items")
+    logger.info(f"Available structures: {list(structure_storage.keys())}")
+    
     if structure_id not in structure_storage:
-        return [TextContent(type="text", text="Bulk structure not found")]
+        return [TextContent(type="text", text=f"Bulk structure {structure_id} not found. Available: {list(structure_storage.keys())}")]
     
     bulk_data = structure_storage[structure_id]
     
@@ -385,17 +452,19 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
         desc += f"Formula: {supercell.composition.reduced_formula}\n"
         desc += f"Lattice: a={supercell.lattice.a:.3f}, b={supercell.lattice.b:.3f}, c={supercell.lattice.c:.3f}"
         
+        logger.info(f"Supercell built successfully: {supercell_uri}")
         return [
             TextContent(type="text", text=f"Supercell created with URI: {supercell_uri}"),
             TextContent(type="text", text=desc)
         ]
         
     except Exception as e:
+        logger.error(f"Error building supercell: {e}")
         return [TextContent(type="text", text=f"Error building supercell: {str(e)}")]
 
 @mcp.tool()
 def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_num_atoms: int = 10, twist_angle: float = 0.0, vacuum_thickness: float = 15.0) -> List[TextContent]:
-    """Generate a moire superstructure of a 2D homobilayer
+    """Generate a moire superstructure of a 2D homobilayer using enhanced physics-based approach
     
     Args:
         bulk_structure_uri: The URI of the bulk structure
@@ -418,7 +487,61 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         return [TextContent(type="text", text="No bulk structure data available")]
     
     try:
-        # Simplified moire bilayer generation
+        # Try enhanced moire generation first
+        try:
+            # Use enhanced structure data if available
+            if bulk_data.enhanced and ENHANCED_AVAILABLE:
+                # Create moire parameters
+                from enhanced_structure_data import MoireParameters
+                moire_params: MoireParameters = {
+                    "twist_angle": twist_angle,
+                    "interlayer_spacing": interlayer_spacing,
+                    "max_num_atoms": max_num_atoms,
+                    "vacuum_thickness": vacuum_thickness
+                }
+                
+                # Use enhanced data class for moire generation (if available)
+                enhanced_moire = EnhancedStructureData(
+                    structure=bulk_data.structure,
+                    parameters=moire_params
+                )
+                
+                # Store enhanced moire structure
+                moire_data = StructureData(structure=enhanced_moire.structure)
+                structure_storage[moire_data.structure_id] = moire_data
+                
+                moire_uri = f"structure://{moire_data.structure_id}"
+                logger.info(f"Enhanced structure data moire generated: {moire_uri}")
+                return [TextContent(type="text", text=f"Moire structure is created with the structure uri: {moire_uri}")]
+            
+            # Fallback to enhanced moire generator
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
+            from enhanced_moire_generator import generate_moire_bilayer
+            
+            moire_structure = generate_moire_bilayer(
+                structure=bulk_data.structure,
+                interlayer_spacing=interlayer_spacing,
+                max_num_atoms=max_num_atoms,
+                twist_angle=twist_angle,
+                vacuum_thickness=vacuum_thickness
+            )
+            
+            moire_data = StructureData(structure=moire_structure)
+            structure_storage[moire_data.structure_id] = moire_data
+            
+            moire_uri = f"structure://{moire_data.structure_id}"
+            
+            logger.info(f"Enhanced moire generator: {moire_uri} with {twist_angle}° twist")
+            return [TextContent(type="text", text=f"Moire structure is created with the structure uri: {moire_uri}")]
+            
+        except ImportError as ie:
+            logger.warning(f"Enhanced moire generator not available: {ie}, using fallback")
+        except Exception as ee:
+            logger.warning(f"Enhanced moire generation failed: {ee}, using fallback")
+        
+        # Fallback to simplified moire bilayer generation
         bulk_structure = bulk_data.structure
         
         # Create two layers with twist
