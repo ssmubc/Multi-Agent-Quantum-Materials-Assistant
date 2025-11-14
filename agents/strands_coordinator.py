@@ -196,10 +196,14 @@ class StrandsCoordinator:
         
         if agent_name == "structure_matcher":
             agent_instance = self.agents["structure_matcher"]["instance"]
-            result = agent_instance.match_poscar_to_mp(
-                resolved_inputs["poscar_text"], 
-                resolved_inputs["formula"]
-            )
+            # Extract string from AgentResult if needed
+            poscar_str = resolved_inputs["poscar_text"]
+            if hasattr(poscar_str, 'text'):
+                poscar_str = poscar_str.text
+            elif not isinstance(poscar_str, str):
+                poscar_str = str(poscar_str)
+            
+            result = agent_instance.match_poscar_to_mp(poscar_str, resolved_inputs["formula"])
             return {"structure_analysis": result}
             
         elif agent_name == "dft_extractor":
@@ -256,9 +260,23 @@ class StrandsCoordinator:
         try:
             response = self.coordinator(prompt)
             
+            # Extract text from AgentResult if needed
+            code_text = response
+            if hasattr(response, 'text'):
+                code_text = response.text
+            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                # Handle nested AgentResult structure
+                content = response.message.content
+                if isinstance(content, list) and len(content) > 0:
+                    code_text = content[0].get('text', str(response))
+                else:
+                    code_text = str(content)
+            elif not isinstance(response, str):
+                code_text = str(response)
+            
             return {
                 "status": "success",
-                "code": response,
+                "code": code_text,
                 "parameters_used": dft_params,
                 "material_id": material_id
             }
