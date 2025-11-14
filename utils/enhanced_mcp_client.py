@@ -128,26 +128,58 @@ class EnhancedMCPClient:
             # Read response with timeout
             import select
             import sys
+            import time
+            import threading
             
             # Check if data is available to read (with timeout)
             if sys.platform == 'win32':
-                # Windows doesn't support select on pipes, so just try to read
-                try:
-                    # Check if process is still alive first
-                    if self.server_process.poll() is not None:
-                        logger.error(f"💀 MCP: Server process died with return code: {self.server_process.returncode}")
-                        # Read stderr for error details
+                # Windows timeout mechanism using threading
+                response_str = None
+                exception_occurred = None
+                
+                def read_with_timeout():
+                    nonlocal response_str, exception_occurred
+                    try:
+                        # Check if process is still alive first
+                        if self.server_process.poll() is not None:
+                            logger.error(f"💀 MCP: Server process died with return code: {self.server_process.returncode}")
+                            return
+                        
+                        response_str = self.server_process.stdout.readline()
+                    except Exception as e:
+                        exception_occurred = e
+                
+                # Start reading in separate thread
+                read_thread = threading.Thread(target=read_with_timeout)
+                read_thread.daemon = True
+                read_thread.start()
+                
+                # Wait for response with timeout
+                timeout_seconds = 60 if tool_name in ["moire_homobilayer", "build_supercell", "get_structure_data"] else 20  # 60s for complex ops
+                read_thread.join(timeout=timeout_seconds)
+                
+                if read_thread.is_alive():
+                    logger.error(f"⏰ MCP: Timeout after {timeout_seconds}s waiting for {tool_name} response")
+                    # Kill the server process to prevent hanging
+                    try:
+                        self.server_process.terminate()
+                        self.server_process.wait(timeout=5)  # Wait for clean shutdown
+                        logger.info("💀 MCP: Terminated hanging server process")
+                    except:
                         try:
-                            stderr_output = self.server_process.stderr.read()
-                            if stderr_output:
-                                logger.error(f"💀 MCP: Server stderr: {stderr_output}")
+                            self.server_process.kill()  # Force kill if terminate fails
+                            logger.info("💀 MCP: Force killed hanging server process")
                         except:
                             pass
-                        return None
-                    
-                    response_str = self.server_process.stdout.readline()
-                except Exception as read_error:
-                    logger.error(f"📥 MCP: Failed to read response: {read_error}")
+                    self.server_process = None
+                    return None
+                
+                if exception_occurred:
+                    logger.error(f"📥 MCP: Failed to read response: {exception_occurred}")
+                    return None
+                
+                if not response_str:
+                    logger.error("📥 MCP: Empty response from server")
                     return None
             else:
                 # Unix-like systems can use select
@@ -421,11 +453,12 @@ class EnhancedMCPClient:
         except Exception:
             return "Si 0.0 0.0 0.0; Si 1.932 1.932 1.932"
     
-    # Additional MCP server tools
     def get_structure_data(self, structure_uri: str, format: str = "poscar") -> Optional[str]:
-        """Get structure data in POSCAR/CIF format"""
+        """Get structure data in POSCAR/CIF format with timeout protection"""
         import streamlit as st
         st.write(f"🔍 **MCP Tool 3**: Getting {format.upper()} data for {structure_uri}")
+        timeout_val = 60 if format.lower() == "poscar" else 20
+        st.write(f"⏰ **Timeout protection**: {timeout_val} second limit for {format.upper()} generation")
         
         result = self.call_tool("get_structure_data", {
             "structure_uri": structure_uri,
@@ -442,8 +475,11 @@ class EnhancedMCPClient:
             lines = data.split('\n')[:5]
             logger.info(f"📋 MCP: First 5 lines of {format.upper()}: {lines}")
             return data
-        st.write(f"❌ Failed to get {format.upper()} data")
+        st.write(f"❌ Failed to get {format.upper()} data (timeout after {timeout_val}s or error)")
         return None
+    
+    # Additional MCP server tools
+
     
     def create_structure_from_poscar(self, poscar_str: str) -> Optional[Dict[str, str]]:
         """Create structure from POSCAR string"""
@@ -494,9 +530,20 @@ class EnhancedMCPClient:
         return None
     
     def build_supercell(self, bulk_structure_uri: str, supercell_parameters: Dict[str, Any]) -> Optional[Dict[str, str]]:
-        """Build supercell from bulk structure"""
+        """Build supercell from bulk structure with retry logic"""
         import streamlit as st
         st.write(f"🔍 **MCP Tool 6**: Building supercell from {bulk_structure_uri}")
+        st.write(f"🔧 **Parameters**: {supercell_parameters}")
+        
+        # Restart server if it died
+        if not self.server_process or self.server_process.poll() is not None:
+            st.write("🔄 **Restarting MCP server** (previous process died)")
+            logger.info("🔄 MCP: Restarting server for supercell operation")
+            if self.start_server():
+                st.write("✅ **Server restarted successfully**")
+            else:
+                st.write("❌ **Failed to restart server**")
+                return None
         
         result = self.call_tool("build_supercell", {
             "bulk_structure_uri": bulk_structure_uri,
@@ -658,14 +705,40 @@ class EnhancedMCPAgent:
             first_item = result[0]
             text = first_item.get("text", "") if isinstance(first_item, dict) else str(first_item)
             
-            if "Moire structure is created" in text:
+            # Log diagnostics from 4th item if available
+            if len(result) >= 4:
+                diagnostics_item = result[3]
+                diagnostics_text = diagnostics_item.get("text", "") if isinstance(diagnostics_item, dict) else str(diagnostics_item)
+                if "FULL DIAGNOSTICS:" in diagnostics_text:
+                    # Extract and log the diagnostics
+                    diagnostics = diagnostics_text.replace("FULL DIAGNOSTICS:\n", "")
+                    for line in diagnostics.split("\n"):
+                        if line.strip():
+                            logger.info(f"INFO: 🔧 MOIRE DIAGNOSTICS: {line.strip()}")
+            
+            if "Moire structure created" in text:
                 # Extract URI from success message
                 uri_match = re.search(r"structure://([a-f0-9]+)", text)
                 moire_uri = uri_match.group(0) if uri_match else "structure://unknown"
                 
+                # Store structure data for later display (after response)
+                structure_data = {}
+                if len(result) >= 3:
+                    poscar_item = result[2]
+                    poscar_text = poscar_item.get("text", "") if isinstance(poscar_item, dict) else str(poscar_item)
+                    if "POSCAR DATA:" in poscar_text:
+                        structure_data["poscar"] = poscar_text.replace("POSCAR DATA:\n", "")
+                
+                if len(result) >= 2:
+                    desc_item = result[1]
+                    desc_text = desc_item.get("text", "") if isinstance(desc_item, dict) else str(desc_item)
+                    if "STRUCTURE DESCRIPTION:" in desc_text:
+                        structure_data["description"] = desc_text.replace("STRUCTURE DESCRIPTION:\n", "")
+                
                 data = {
                     "moire_uri": moire_uri,
-                    "description": text
+                    "description": text,
+                    "structure_data": structure_data
                 }
                 st.write(f"✅ **Moire bilayer generated**: {data['moire_uri']}")
                 return data
