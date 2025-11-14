@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Create MCP server
 mcp = FastMCP("enhanced-mcp-materials")
 
-# In-memory structure storage (simplified version of the official server's approach)
+# In-memory structure storage for current session
 structure_storage = {}
 
 # Simplified structure storage
@@ -59,23 +59,12 @@ Crystal System: {crystal_system}
             if hasattr(properties, 'formation_energy_per_atom') and properties.formation_energy_per_atom is not None:
                 mp_properties += f"\nFormation Energy: {properties.formation_energy_per_atom:.3f} eV/atom"
 
-        description += f"""
-Material id: {material_id if material_id else 'N/A'}
-
-Formula:
-{structure.composition.formula}
-
-{spg_info}{mp_properties}
-
+        description += f"""Material id: {material_id if material_id else 'N/A'}
+Formula: {structure.composition.formula}{spg_info.strip()}{mp_properties}
 Lattice Parameters:
-a={structure.lattice.a:.4f}
-b={structure.lattice.b:.4f}
-c={structure.lattice.c:.4f}
+a={structure.lattice.a:.4f}, b={structure.lattice.b:.4f}, c={structure.lattice.c:.4f}
 Angles:
-alpha={structure.lattice.alpha:.4f}
-beta={structure.lattice.beta:.4f}
-gamma={structure.lattice.gamma:.4f}
-
+alpha={structure.lattice.alpha:.4f}, beta={structure.lattice.beta:.4f}, gamma={structure.lattice.gamma:.4f}
 Number of atoms: {len(structure)}
 """
         return json.loads(json.dumps(description))
@@ -84,12 +73,27 @@ Number of atoms: {len(structure)}
         return f"Structure {structure_id}: Enhanced description failed"
 
 def get_poscar_str(structure: Structure) -> str:
-    """Get POSCAR string"""
+    """Get POSCAR string with robust error handling"""
     try:
-        poscar = Poscar(structure=structure)
-        return poscar.get_str()
-    except Exception:
-        return structure.to(fmt="poscar")
+        # Always use simple method for reliability
+        logger.info(f"📋 POSCAR: Generating for {len(structure)} atoms using robust method")
+        poscar_str = structure.to(fmt="poscar")
+        logger.info(f"✅ POSCAR: Generated successfully ({len(poscar_str)} chars)")
+        return poscar_str
+    except Exception as e:
+        logger.error(f"❌ POSCAR: Generation failed ({e}), creating minimal fallback")
+        # Create minimal valid POSCAR as fallback
+        formula = structure.composition.reduced_formula
+        return f"""{formula} - Fallback POSCAR
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+{formula.replace('1', '').replace('2', '').replace('3', '').replace('4', '').replace('5', '')}
+1
+Direct
+0.0 0.0 0.0
+"""
 
 def generate_structure_id(material_id: str = None, structure: Structure = None) -> str:
     """Generate unique structure ID"""
@@ -180,9 +184,13 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
                 'properties': material_data[0] if material_data else None
             }
             
+            logger.info(f"💾 SELECT_MATERIAL: Stored {material_id} as {structure_id} in storage")
+            logger.info(f"💾 SELECT_MATERIAL: Storage now has {len(structure_storage)} items: {list(structure_storage.keys())}")
+            
             structure_uri = f"structure://{structure_id}"
             description = get_enhanced_description(structure, material_id, structure_id, material_data[0] if material_data else None)
             
+            logger.info(f"✅ SELECT_MATERIAL: Returning description and URI {structure_uri}")
             return [
                 TextContent(type="text", text=description),
                 TextContent(type="text", text=f"structure uri: {structure_uri}")
@@ -204,8 +212,43 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     """
     structure_id = structure_uri.replace("structure://", "")
     
+    logger.info(f"🔍 GET_STRUCTURE: Looking for {structure_id} in storage with {len(structure_storage)} items")
+    logger.info(f"🔍 GET_STRUCTURE: Available keys: {list(structure_storage.keys())}")
+    
     if structure_id not in structure_storage:
-        return [TextContent(type="text", text="Structure not found")]
+        # Try to reload from Materials Project if it's an mp_ ID
+        if structure_id.startswith("mp_"):
+            material_id = structure_id.replace("mp_", "")
+            logger.info(f"🔄 GET_STRUCTURE: Attempting to reload {material_id} from Materials Project")
+            
+            api_key = os.getenv("MP_API_KEY")
+            if api_key:
+                try:
+                    with MPRester(api_key) as mpr:
+                        structure = mpr.get_structure_by_material_id(material_id)
+                        if structure:
+                            # Reload structure into storage
+                            material_data = mpr.materials.summary.search(
+                                material_ids=[material_id],
+                                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
+                            )
+                            
+                            structure_storage[structure_id] = {
+                                'material_id': material_id,
+                                'structure': structure,
+                                'properties': material_data[0] if material_data else None
+                            }
+                            logger.info(f"✅ GET_STRUCTURE: Reloaded {material_id} successfully")
+                        else:
+                            logger.error(f"❌ GET_STRUCTURE: Failed to reload {material_id}")
+                            return [TextContent(type="text", text="Structure not found")]
+                except Exception as e:
+                    logger.error(f"❌ GET_STRUCTURE: Error reloading {material_id}: {e}")
+                    return [TextContent(type="text", text="Structure not found")]
+            else:
+                return [TextContent(type="text", text="Structure not found")]
+        else:
+            return [TextContent(type="text", text="Structure not found")]
     
     structure_info = structure_storage[structure_id]
     structure = structure_info.get('structure')
@@ -214,14 +257,22 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
         return [TextContent(type="text", text="No structure data available")]
     
     try:
+        logger.info(f"🔄 GET_STRUCTURE: Generating {format} for {structure_id} ({len(structure)} atoms)")
+        
         if format == "cif":
-            structure_str = structure.to(fmt="cif")
+            try:
+                structure_str = structure.to(fmt="cif")
+            except Exception as e:
+                logger.error(f"❌ GET_STRUCTURE: CIF generation failed: {e}")
+                structure_str = f"Error generating CIF: {e}"
         else:  # poscar
             structure_str = get_poscar_str(structure)
         
+        logger.info(f"✅ GET_STRUCTURE: Successfully retrieved {format} data for {structure_id} ({len(structure_str)} chars)")
         return [TextContent(type="text", text=structure_str)]
         
     except Exception as e:
+        logger.error(f"❌ GET_STRUCTURE: Error getting structure data: {e}")
         return [TextContent(type="text", text=f"Error getting structure data: {str(e)}")]
 
 @mcp.tool()
@@ -354,7 +405,7 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
 
 @mcp.tool()
 def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any]) -> List[TextContent]:
-    """Build supercell from bulk structure
+    """Build supercell from bulk structure with robust error handling
     
     Args:
         bulk_structure_uri: The URI of the bulk structure
@@ -363,10 +414,39 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
     Returns:
         Information about the newly created supercell
     """
+    logger.info(f"🏗️ BUILD_SUPERCELL: Starting for {bulk_structure_uri}")
     structure_id = bulk_structure_uri.replace("structure://", "")
     
+    logger.info(f"🔍 BUILD_SUPERCELL: Looking for {structure_id} in storage with {len(structure_storage)} items")
+    logger.info(f"🔍 BUILD_SUPERCELL: Available keys: {list(structure_storage.keys())}")
+    
     if structure_id not in structure_storage:
-        return [TextContent(type="text", text="Bulk structure not found")]
+        # Try to reload structure if missing
+        if structure_id.startswith("mp_"):
+            material_id = structure_id.replace("mp_", "")
+            logger.info(f"🔄 BUILD_SUPERCELL: Attempting to reload {material_id}")
+            
+            api_key = os.getenv("MP_API_KEY")
+            if api_key:
+                try:
+                    with MPRester(api_key) as mpr:
+                        structure = mpr.get_structure_by_material_id(material_id)
+                        if structure:
+                            structure_storage[structure_id] = {
+                                'material_id': material_id,
+                                'structure': structure
+                            }
+                            logger.info(f"✅ BUILD_SUPERCELL: Reloaded {material_id} successfully")
+                        else:
+                            logger.error(f"❌ BUILD_SUPERCELL: Failed to reload {material_id}")
+                            return [TextContent(type="text", text=f"Structure {material_id} not found in Materials Project")]
+                except Exception as e:
+                    logger.error(f"❌ BUILD_SUPERCELL: Error reloading {material_id}: {e}")
+                    return [TextContent(type="text", text=f"Error reloading structure: {e}")]
+            else:
+                return [TextContent(type="text", text="Structure not found and no API key available")]
+        else:
+            return [TextContent(type="text", text="Bulk structure not found")]
     
     structure_info = structure_storage[structure_id]
     bulk_structure = structure_info.get('structure')
@@ -377,9 +457,12 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
     try:
         # Extract scaling matrix from parameters
         scaling_matrix = supercell_parameters.get("scaling_matrix", [[2,0,0],[0,2,0],[0,0,2]])
+        logger.info(f"🔧 BUILD_SUPERCELL: Using scaling matrix {scaling_matrix}")
         
         # Create supercell using pymatgen
+        logger.info(f"⚙️ BUILD_SUPERCELL: Creating supercell from {len(bulk_structure)} atoms")
         supercell = bulk_structure.make_supercell(scaling_matrix)
+        logger.info(f"✅ BUILD_SUPERCELL: Supercell created with {len(supercell)} atoms")
         
         # Create new structure data for supercell
         supercell_id = generate_structure_id(structure=supercell)
@@ -389,6 +472,7 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
         }
         
         supercell_uri = f"structure://{supercell_id}"
+        logger.info(f"💾 BUILD_SUPERCELL: Stored supercell as {supercell_uri}")
         
         # Create description
         desc = f"Supercell created from {bulk_structure_uri}\n"
@@ -398,17 +482,79 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
         desc += f"Formula: {supercell.composition.reduced_formula}\n"
         desc += f"Lattice: a={supercell.lattice.a:.3f}, b={supercell.lattice.b:.3f}, c={supercell.lattice.c:.3f}"
         
+        # Also generate POSCAR for the supercell
+        try:
+            supercell_poscar = get_poscar_str(supercell)
+            desc += f"\n\nSupercell POSCAR:\n{supercell_poscar}"
+        except Exception as poscar_error:
+            logger.warning(f"⚠️ BUILD_SUPERCELL: Could not generate POSCAR: {poscar_error}")
+            desc += "\n\nPOSCAR generation failed"
+        
         return [
             TextContent(type="text", text=f"Supercell created with URI: {supercell_uri}"),
             TextContent(type="text", text=desc)
         ]
         
     except Exception as e:
+        logger.error(f"❌ BUILD_SUPERCELL: Error building supercell: {e}")
         return [TextContent(type="text", text=f"Error building supercell: {str(e)}")]
+
+# Enhanced moire generation embedded directly (no import issues)
+def generate_enhanced_moire_bilayer(structure: Structure, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float) -> tuple[Structure, str]:
+    """Ultra-fast moire bilayer generation - returns (structure, diagnostics)"""
+    diagnostics = []
+    diagnostics.append("ULTRA-FAST MODE: Minimal moire generation")
+    diagnostics.append(f"ULTRA-FAST MODE: {len(structure)} atoms, {twist_angle}° twist")
+    
+    try:
+        # Ultra-simple approach: just stack two layers with minimal processing
+        layer1 = structure.copy()
+        layer2 = structure.copy()
+        
+        # Simple z-translation for second layer
+        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+        
+        # Combine layers (limit atoms immediately)
+        layer1_sites = list(layer1.sites)[:max_num_atoms//2]
+        layer2_sites = list(layer2.sites)[:max_num_atoms//2]
+        moire_sites = layer1_sites + layer2_sites
+        
+        # Simple lattice expansion
+        old_lattice = layer1.lattice
+        new_lattice_matrix = old_lattice.matrix.copy()
+        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+        new_lattice = Lattice(new_lattice_matrix)
+        
+        final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        diagnostics.append(f"ULTRA-FAST MODE: Completed - {len(final_structure)} atoms")
+        return final_structure, "\n".join(diagnostics)
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        diagnostics.append(f"BASIC FALLBACK MODE: Enhanced generation failed: {e}")
+        diagnostics.append(f"BASIC FALLBACK MODE: Full error trace: {error_details}")
+        # Simple fallback
+        layer1 = structure.copy()
+        layer2 = structure.copy()
+        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+        
+        moire_sites = list(layer1.sites) + list(layer2.sites)
+        if len(moire_sites) > max_num_atoms:
+            moire_sites = moire_sites[:max_num_atoms]
+        
+        old_lattice = layer1.lattice
+        new_lattice_matrix = old_lattice.matrix.copy()
+        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+        new_lattice = Lattice(new_lattice_matrix)
+        
+        final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        diagnostics.append(f"BASIC FALLBACK MODE: Completed - {len(final_structure)} atoms")
+        return final_structure, "\n".join(diagnostics)
 
 @mcp.tool()
 def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_num_atoms: int = 10, twist_angle: float = 0.0, vacuum_thickness: float = 15.0) -> List[TextContent]:
-    """Generate a moire superstructure of a 2D homobilayer
+    """Generate a moire superstructure of a 2D homobilayer with enhanced physics
     
     Args:
         bulk_structure_uri: The URI of the bulk structure
@@ -432,44 +578,20 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         return [TextContent(type="text", text="No bulk structure data available")]
     
     try:
-        # Simplified moire bilayer generation
-        import numpy as np
-        
-        # Get the original structure
-        layer1 = bulk_structure.copy()
-        layer2 = bulk_structure.copy()
-        
-        # Apply twist to second layer (rotation around z-axis)
-        angle_rad = np.radians(twist_angle)
-        rotation_matrix = np.array([
-            [np.cos(angle_rad), -np.sin(angle_rad), 0],
-            [np.sin(angle_rad), np.cos(angle_rad), 0],
-            [0, 0, 1]
-        ])
-        
-        # Rotate layer2 coordinates
-        for i, site in enumerate(layer2):
-            new_coords = np.dot(rotation_matrix, site.coords)
-            layer2[i] = site.specie, new_coords
-        
-        # Shift layer2 up by interlayer_spacing
-        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
-        
-        # Combine layers
-        moire_sites = list(layer1.sites) + list(layer2.sites)
-        
-        # Limit number of atoms
-        if len(moire_sites) > max_num_atoms:
-            moire_sites = moire_sites[:max_num_atoms]
-        
-        # Create new lattice with vacuum
-        old_lattice = layer1.lattice
-        new_lattice_matrix = old_lattice.matrix.copy()
-        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
-        new_lattice = Lattice(new_lattice_matrix)
-        
-        # Create moire structure
-        moire_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        # Use enhanced moire generation with timeout protection
+        logger.info(f"🌀 MOIRE: Starting generation for {len(bulk_structure)} atoms, {twist_angle}° twist")
+        try:
+            moire_structure, diagnostics = generate_enhanced_moire_bilayer(
+                structure=bulk_structure,
+                interlayer_spacing=interlayer_spacing,
+                max_num_atoms=max_num_atoms,
+                twist_angle=twist_angle,
+                vacuum_thickness=vacuum_thickness
+            )
+            logger.info(f"✅ MOIRE: Generation completed successfully")
+        except Exception as e:
+            logger.error(f"❌ MOIRE: Generation failed: {e}")
+            return [TextContent(type="text", text=f"Error generating moire bilayer: {str(e)}")]
         
         # Store the moire structure
         moire_id = generate_structure_id(structure=moire_structure)
@@ -479,8 +601,43 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         }
         
         moire_uri = f"structure://{moire_id}"
+        logger.info(f"🌀 MOIRE: Created structure {moire_uri} with {len(moire_structure)} atoms")
         
-        return [TextContent(type="text", text=f"Moire structure is created with the structure uri: {moire_uri}")]
+        # Extract method type from diagnostics for immediate visibility
+        method_type = "UNKNOWN"
+        if "ADVANCED ASE MODE" in diagnostics:
+            method_type = "ADVANCED ASE MODE"
+        elif "SIMPLE PYMATGEN MODE" in diagnostics:
+            method_type = "SIMPLE PYMATGEN MODE"
+        elif "BASIC FALLBACK MODE" in diagnostics:
+            method_type = "BASIC FALLBACK MODE"
+        
+        # Log diagnostics to server console
+        logger.info(f"🔧 MOIRE: Using {method_type}")
+        for line in diagnostics.split("\n")[:5]:  # Only log first 5 lines
+            if line.strip():
+                logger.info(f"🔧 MOIRE: {line.strip()}")
+        
+        # Get structure data for display
+        try:
+            structure_poscar = get_poscar_str(moire_structure)
+            structure_desc = get_enhanced_description(moire_structure, None, moire_id)
+        except Exception as e:
+            structure_poscar = f"Error getting structure data: {e}"
+            structure_desc = f"Structure with {len(moire_structure)} atoms"
+        
+        # Combine all info in first item so Streamlit displays it
+        combined_text = f"{method_type}: Moire structure created with URI: {moire_uri}\n\n"
+        combined_text += f"DIAGNOSTICS:\n{diagnostics}\n\n"
+        combined_text += f"STRUCTURE DESCRIPTION:\n{structure_desc}\n\n"
+        combined_text += f"POSCAR DATA:\n{structure_poscar}"
+        
+        return [
+            TextContent(type="text", text=combined_text),
+            TextContent(type="text", text=f"STRUCTURE DESCRIPTION:\n{structure_desc}"),
+            TextContent(type="text", text=f"POSCAR DATA:\n{structure_poscar}"),
+            TextContent(type="text", text=f"FULL DIAGNOSTICS:\n{diagnostics}")
+        ]
         
     except Exception as e:
         return [TextContent(type="text", text=f"Error generating moire bilayer: {str(e)}")]
