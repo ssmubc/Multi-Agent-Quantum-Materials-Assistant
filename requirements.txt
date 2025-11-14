@@ -21,3 +21,9 @@ crystal-toolkit>=2023.11.3
 kaleido>=0.2.1
 scipy>=1.10.0
 loguru>=0.7.0
+
+# Amazon Braket MCP Server dependencies
+amazon-braket-sdk>=1.70.0
+qiskit-braket-provider>=0.4.0
+fastmcp>=0.5.0
+pydantic>=2.0.0
