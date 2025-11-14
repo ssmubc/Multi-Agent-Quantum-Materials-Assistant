@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import json
 import logging
+import re
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -25,6 +26,7 @@ from utils.materials_project_agent import MaterialsProjectAgent
 from utils.enhanced_mcp_client import EnhancedMCPAgent
 from utils.secrets_manager import get_mp_api_key
 from utils.logging_display import setup_logging_display, display_mcp_logs
+from utils.braket_integration import braket_integration
 from demo_mode import get_demo_response
 from agents.strands_supervisor import StrandsSupervisorAgent
 from agents.strands_coordinator import StrandsCoordinator
@@ -435,6 +437,113 @@ def main():
     with col1:
         st.subheader("🎯 Select Agent & Model")
         
+        # Braket Integration Status
+        st.markdown("#### ⚛️ Amazon Braket Integration")
+        if braket_integration.is_available():
+            st.success("✅ Braket MCP Server Available")
+            
+            # Braket mode toggle
+            braket_mode = st.selectbox(
+                "Quantum Framework:",
+                ["Qiskit Only", "Amazon Braket", "Both Frameworks"],
+                help="Choose quantum computing framework for code generation"
+            )
+            
+            # Show mode-specific information
+            if braket_mode == "Qiskit Only":
+                st.info("""
+                **🔬 Qiskit Mode:**
+                - ✅ Full VQE/materials science support
+                - ✅ Works with Materials Project data
+                - ✅ Generates Qiskit/Qiskit-Nature code
+                - ✅ Supports complex parameterized circuits
+                """)
+            elif braket_mode == "Amazon Braket":
+                st.warning("""
+                **⚛️ Braket Mode - IMPORTANT LIMITATIONS:**
+                - ⚠️ NO VQE circuits for materials (will create simple GHZ instead)
+                - ⚠️ NO Materials Project integration
+                - ⚠️ Cannot handle "VQE for graphene" - creates generic circuits
+                - ✅ Only: Bell states, GHZ states, QFT, device listing
+                - ✅ Generates Braket SDK code + ASCII diagrams
+                - 💡 For materials science: Switch to Qiskit mode
+                """)
+            else:  # Both Frameworks
+                st.info("""
+                **🔄 Both Frameworks Mode:**
+                - 🔬 Materials science → Qiskit code
+                - ⚛️ Simple algorithms → Braket MCP
+                - 🤖 Auto-detects based on query type
+                """)
+            
+            # Show Braket features
+            if braket_mode != "Qiskit Only":
+                with st.expander("🚀 Braket Features Available"):
+                    st.info("""
+                    **Amazon Braket MCP Supports:**
+                    - 🔄 Pre-built quantum circuits (Bell pairs, GHZ, QFT)
+                    - 🖥️ Local simulator execution
+                    - ☁️ AWS quantum device listing
+                    - 📊 ASCII circuit diagrams
+                    - 📈 Results analysis and visualization
+                    """)
+                    
+                    st.warning("""
+                    **⚠️ Braket MCP Limitations:**
+                    - ❌ Does NOT support parameterized VQE circuits
+                    - ❌ Cannot generate complex ansätze with symbolic parameters
+                    - ❌ VQE circuits need quantum hardware (expensive) or HPC simulators
+                    - ✅ Use for simple demonstration circuits only
+                    - ✅ For VQE/materials science: Use Materials Project + Qiskit
+                    """)
+                    
+                    st.success("""
+                    **✅ Supported Braket MCP Queries:**
+                    - "Create a Bell pair circuit"
+                    - "Generate 4-qubit GHZ state with ASCII diagram"
+                    - "Show available Braket devices"
+                    - "Create QFT circuit for 3 qubits"
+                    
+                    **📝 Note:** Code generation only - no execution (VQE needs quantum hardware)
+                    """)
+                    
+                    # Test Braket button
+                    if st.button("🧪 Test Braket Integration"):
+                        test_result = braket_integration.create_bell_pair_circuit()
+                        if "error" not in test_result:
+                            st.success("✅ Braket integration working!")
+                            if "ascii_visualization" in test_result:
+                                st.code(test_result["ascii_visualization"], language="text")
+                        else:
+                            st.error(f"❌ Braket test failed: {test_result['error']}")
+                    
+                    # Additional Braket tests
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("🔗 Test GHZ Circuit"):
+                            ghz_result = braket_integration.create_ghz_circuit(3)
+                            if "error" not in ghz_result:
+                                st.success("✅ GHZ circuit created!")
+                                if "ascii_visualization" in ghz_result:
+                                    st.code(ghz_result["ascii_visualization"], language="text")
+                            else:
+                                st.error(f"❌ GHZ test failed: {ghz_result['error']}")
+                    
+                    with col_b:
+                        if st.button("🖥️ List Devices"):
+                            devices_result = braket_integration.list_braket_devices()
+                            if "error" not in devices_result:
+                                st.success(f"✅ Found {devices_result.get('total_devices', 0)} devices")
+                                with st.expander("Device List"):
+                                    for device in devices_result.get('devices', [])[:3]:  # Show first 3
+                                        st.write(f"• {device.get('device_name', 'Unknown')} ({device.get('status', 'Unknown')})")
+                            else:
+                                st.error(f"❌ Device list failed: {devices_result['error']}")
+        else:
+            st.warning("⚠️ Braket MCP Server Not Available")
+            st.info("💡 Install dependencies: `pip install amazon-braket-sdk qiskit-braket-provider fastmcp`")
+            braket_mode = "Qiskit Only"
+        
         # Agent type selection
         agent_type = st.selectbox(
             "Agent Framework:",
@@ -514,13 +623,77 @@ def main():
                     placeholder="Si\n1.0\n5.43 0 0\n0 5.43 0\n0 0 5.43\nSi\n2\nDirect\n0.0 0.0 0.0\n0.25 0.25 0.25"
                 )
         
-        # Query input
+        # Query input with Braket-specific examples
+        if braket_mode == "Amazon Braket":
+            placeholder_text = "Example: Create a 4-qubit GHZ circuit with ASCII diagram"
+            help_text = "⚛️ Braket Mode: Simple quantum algorithms only (Bell, GHZ, QFT, devices). NO materials science."
+        elif braket_mode == "Both Frameworks":
+            placeholder_text = "Example: Generate VQE for TiO2 (Qiskit) OR Create GHZ circuit (Braket)"
+            help_text = "🔄 Auto-detects: Materials science → Qiskit, Simple algorithms → Braket MCP"
+        else:
+            placeholder_text = "Example: Generate a VQE ansatz for H2 molecule using UCCSD with Jordan-Wigner mapping"
+            help_text = "🔬 Qiskit Mode: Full quantum computing and materials science support"
+        
         query = st.text_area(
             "Enter your quantum matter/materials science question:",
             height=100,
-            placeholder="Example: Generate a VQE ansatz for H2 molecule using UCCSD with Jordan-Wigner mapping",
-            help="Ask questions about quantum computing, materials science, or request code generation"
+            placeholder=placeholder_text,
+            help=help_text
         )
+        
+        # Mode-specific examples
+        if braket_mode == "Amazon Braket":
+            st.markdown("**⚛️ Braket Mode Examples (Algorithm Demos Only):**")
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                if st.button("📝 GHZ Circuit", help="Simple GHZ circuit with ASCII"):
+                    st.session_state.example_query = "Create a 4-qubit GHZ state circuit with ASCII diagram"
+                if st.button("🔗 Bell Pair", help="Bell pair circuit"):
+                    st.session_state.example_query = "Create a Bell pair circuit using Braket"
+            with col_ex2:
+                if st.button("🖥️ List Devices", help="Show available devices"):
+                    st.session_state.example_query = "Show me available Amazon Braket devices and their status"
+                if st.button("🎯 QFT Circuit", help="Quantum Fourier Transform"):
+                    st.session_state.example_query = "Generate a 3-qubit QFT circuit with Braket"
+            
+            st.warning("⚠️ **Materials Science NOT Supported in Braket Mode**")
+            st.warning("📝 **Example:** 'VQE for graphene' will create a generic GHZ circuit, NOT a real VQE. Switch to Qiskit mode for actual materials science.")
+            st.info("💡 **For VQE/Materials:** Use Qiskit mode with Materials Project integration")
+        
+        elif braket_mode == "Both Frameworks":
+            st.markdown("**🔄 Both Frameworks Examples:**")
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                st.markdown("**🔬 Materials Science (→ Qiskit):**")
+                if st.button("🧪 VQE for TiO2", help="Materials science with Qiskit"):
+                    st.session_state.example_query = "Generate VQE circuit for TiO2 using Materials Project data"
+                if st.button("💎 Silicon VQE", help="Silicon quantum simulation"):
+                    st.session_state.example_query = "Create VQE ansatz for silicon mp-149"
+            with col_ex2:
+                st.markdown("**⚛️ Algorithms (→ Braket MCP):**")
+                if st.button("🔗 Bell + ASCII", help="Simple circuit with visualization"):
+                    st.session_state.example_query = "Create Bell pair with ASCII diagram"
+                if st.button("📊 Device Status", help="Braket device information"):
+                    st.session_state.example_query = "Show Braket device status"
+        
+        elif braket_mode == "Qiskit Only":
+            st.markdown("**🔬 Qiskit Mode Examples (Full Support):**")
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                if st.button("🧪 H2 VQE", help="Hydrogen molecule VQE"):
+                    st.session_state.example_query = "Generate VQE ansatz for H2 molecule using UCCSD"
+                if st.button("💎 Graphene VQE", help="Graphene quantum simulation"):
+                    st.session_state.example_query = "Create VQE circuit for graphene using Materials Project"
+            with col_ex2:
+                if st.button("🔬 TiO2 Analysis", help="Titanium dioxide simulation"):
+                    st.session_state.example_query = "Generate quantum simulation for TiO2 with real coordinates"
+                if st.button("📋 MP Search", help="Materials Project search"):
+                    st.session_state.example_query = "Show me properties of silicon mp-149"
+            
+            # Apply example query if selected
+            if hasattr(st.session_state, 'example_query'):
+                query = st.session_state.example_query
+                del st.session_state.example_query
         
         # Additional parameters
         with st.expander("⚙️ Advanced Parameters"):
@@ -531,20 +704,56 @@ def main():
             with col_b:
                 top_p = st.slider("Top P", 0.0, 1.0, 0.9, 0.1)
                 include_mp_data = st.checkbox("Include Materials Project data", value=mp_configured)
+            
+            # MCP Server Controls
+            st.markdown("**MCP Server Selection:**")
+            col_mcp1, col_mcp2 = st.columns(2)
+            
+            with col_mcp1:
+                force_braket_mcp = st.checkbox(
+                    "Force Braket MCP", 
+                    value=False,
+                    help="Always use Braket MCP for quantum circuits"
+                )
+            
+            with col_mcp2:
+                disable_mp_mcp = st.checkbox(
+                    "Disable MP MCP", 
+                    value=False,
+                    help="Skip Materials Project MCP calls"
+                )
+            
+            # Override include_mp_data if user disables MP MCP
+            if disable_mp_mcp:
+                include_mp_data = False
         
         # Submit button
         if st.button("🚀 Generate Response", type="primary", disabled=not query.strip()):
             if selected_model and query.strip():
                 # Show what will be used
-                if include_mp_data and st.session_state.mp_agent:
+                if braket_mode == "Amazon Braket":
+                    st.warning("⚛️ **Braket Mode Active:** Only simple quantum algorithms supported. Materials Project data will be ignored.")
+                elif include_mp_data and st.session_state.mp_agent:
                     if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
                         st.info("🔬 Will use Enhanced MCP Materials Project Server for data lookup")
                     else:
                         st.info("🔧 Will use standard Materials Project API for data lookup")
                 
-                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text)
+                if force_braket_mcp:
+                    st.info("⚛️ Using Braket MCP for quantum circuit generation")
+                    st.warning("⚠️ Note: Braket MCP only supports simple circuits (Bell, GHZ, QFT). For VQE/complex circuits, disable Force Braket MCP.")
+                
+                # Show what code will be generated
+                if braket_mode == "Amazon Braket":
+                    st.info("📝 **Code Output:** Braket SDK code with ASCII circuit diagrams")
+                elif braket_mode == "Both Frameworks":
+                    st.info("📝 **Code Output:** Auto-selected (Qiskit for materials, Braket for algorithms)")
+                else:
+                    st.info("📝 **Code Output:** Qiskit/Qiskit-Nature code for quantum simulations")
+                
+                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text, braket_mode, force_braket_mcp)
 
-def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None):
+def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None, braket_mode: str = "Qiskit Only", force_braket_mcp: bool = False):
     """Generate response using selected model or demo mode"""
     
     if demo_mode:
@@ -600,8 +809,12 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
     with response_container:
         st.subheader(f"🤖 Response from {model_name}")
         
-        # Show loading spinner
-        with st.spinner(f"Generating response using {model_name}..."):
+        # Show loading spinner with enhanced message for Strands
+        spinner_message = f"Generating response using {model_name}..."
+        if agent_type == "AWS Strands":
+            spinner_message = f"🧠 AWS Strands is analyzing your query with {model_name}... This may take 2-5 minutes for complex workflows."
+        
+        with st.spinner(spinner_message):
             try:
                 # Log MCP usage
                 if include_mp_data and st.session_state.mp_agent:
@@ -610,8 +823,105 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     else:
                         logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
                 
-                # Generate response with agent framework
-                if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
+                # Check if this is a Braket-specific query or forced
+                braket_keywords = ['braket', 'ghz', 'bell pair', 'ascii diagram', 'quantum device', 'braket mcp', 'qft']
+                is_braket_query = any(keyword in query.lower() for keyword in braket_keywords)
+                
+                # Force Braket mode for pure algorithm queries
+                if braket_mode == "Amazon Braket":
+                    is_braket_query = True
+                    force_braket_mcp = True
+                
+                # Handle Braket-specific queries directly (either detected or forced)
+                if (is_braket_query and braket_mode != "Qiskit Only") or force_braket_mcp:
+                    st.info("🔍 Detected Braket-specific query - using Braket MCP integration")
+                    
+                    # Route to Strands supervisor for Braket handling if using AWS Strands
+                    if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
+                        # Force Strands to handle as Braket query
+                        strands_result = st.session_state.strands_supervisor._handle_braket_query(query)
+                        
+                        # Pass Strands Braket result to the selected model for enhanced response
+                        original_braket_data = getattr(model_instance, '_cached_braket_data', None)
+                        model_instance._cached_braket_data = strands_result.get('braket_data')
+                        
+                        response = model_instance.generate_response(
+                            query=query,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            top_p=top_p,
+                            include_mp_data=False  # Don't mix with MP data for pure Braket queries
+                        )
+                        
+                        # Add Braket data to response
+                        response["braket_data"] = strands_result.get('braket_data')
+                        
+                        # Restore original cached data
+                        model_instance._cached_braket_data = original_braket_data
+                    
+                    else:
+                        # Direct Braket MCP calls for non-Strands agents
+                        if 'ghz' in query.lower():
+                            qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
+                            num_qubits = int(qubit_match.group(1)) if qubit_match else 3
+                            braket_result = braket_integration.create_ghz_circuit(num_qubits)
+                            if "error" not in braket_result:
+                                response = {
+                                    "text": f"I've created a {num_qubits}-qubit GHZ state circuit using Amazon Braket MCP:\n\n{braket_result.get('description', {}).get('summary', 'GHZ circuit created successfully')}",
+                                    "braket_data": braket_result
+                                }
+                            else:
+                                response = {"text": f"Error creating GHZ circuit: {braket_result['error']}"}
+                        
+                        elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
+                            devices_result = braket_integration.list_braket_devices()
+                            if "error" not in devices_result:
+                                device_list = "\n".join([f"• {d.get('device_name', 'Unknown')}: {d.get('status', 'Unknown')}" 
+                                                        for d in devices_result.get('devices', [])[:5]])
+                                response = {
+                                    "text": f"Available Amazon Braket devices:\n\n{device_list}\n\nTotal devices: {devices_result.get('total_devices', 0)}",
+                                    "braket_data": devices_result
+                                }
+                            else:
+                                response = {"text": f"Error listing devices: {devices_result['error']}"}
+                        
+                        elif 'bell' in query.lower():
+                            bell_result = braket_integration.create_bell_pair_circuit()
+                            if "error" not in bell_result:
+                                response = {
+                                    "text": f"I've created a Bell pair circuit using Amazon Braket MCP:\n\n{bell_result.get('description', {}).get('summary', 'Bell pair circuit created successfully')}",
+                                    "braket_data": bell_result
+                                }
+                            else:
+                                response = {"text": f"Error creating Bell pair circuit: {bell_result['error']}"}
+                        
+                        else:
+                            # For VQE/complex queries, create a simple demonstration circuit
+                            if 'vqe' in query.lower() or 'circuit' in query.lower():
+                                # Create a simple 4-qubit circuit for demonstration
+                                demo_result = braket_integration.create_ghz_circuit(4)
+                                if "error" not in demo_result:
+                                    material_name = "TiO2" if "tio2" in query.lower() else "the material"
+                                    response = {
+                                        "text": f"I've created a demonstration 4-qubit GHZ circuit for {material_name} VQE using Amazon Braket MCP. This shows the quantum entanglement structure that would be used in a VQE ansatz.",
+                                        "braket_data": demo_result
+                                    }
+                                else:
+                                    response = {"text": f"Error creating demonstration circuit: {demo_result['error']}"}
+                            else:
+                                # General Braket status or capabilities
+                                braket_status = braket_integration.get_braket_status()
+                                if "error" not in braket_status:
+                                    capabilities = "\n".join([f"• {cap}" for cap in braket_status.get('capabilities', [])])
+                                    response = {
+                                        "text": f"Amazon Braket MCP Status:\n\nAvailable: {braket_status.get('available', False)}\n\nCapabilities:\n{capabilities}",
+                                        "braket_data": braket_status
+                                    }
+                                else:
+                                    response = {"text": f"Error getting Braket status: {braket_status['error']}"}
+                
+                # Generate response with agent framework (non-Braket queries)
+                elif agent_type == "AWS Strands" and st.session_state.strands_supervisor and not force_braket_mcp:
                     # Let Strands intelligently gather data first
                     strands_result = st.session_state.strands_supervisor.intelligent_workflow_dispatch(query, poscar_text)
                     
@@ -640,6 +950,57 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     model_instance._cached_strands_result = original_strands_result
                     
                 else:
+                    # Force MP data retrieval if requested and available
+                    if include_mp_data and st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        try:
+                            # Smart material extraction from query
+                            material_query = None
+                            query_lower = query.lower()
+                            
+                            # Check for material IDs first (highest priority)
+                            mp_match = re.search(r'mp-\d+', query)
+                            if mp_match:
+                                material_query = mp_match.group(0)
+                            else:
+                                # Check for common materials
+                                materials = {
+                                    'graphene': 'graphene', 'carbon': 'carbon', 'diamond': 'diamond',
+                                    'silicon': 'silicon', 'si': 'silicon', 'titanium': 'titanium', 'ti': 'titanium',
+                                    'tio2': 'TiO2', 'titanium dioxide': 'TiO2', 'iron': 'iron', 'fe': 'iron',
+                                    'copper': 'copper', 'cu': 'copper', 'aluminum': 'aluminum', 'al': 'aluminum',
+                                    'lithium': 'lithium', 'li': 'lithium', 'sodium': 'sodium', 'na': 'sodium',
+                                    'h2': 'H2', 'hydrogen': 'H2', 'water': 'H2O', 'h2o': 'H2O'
+                                }
+                                
+                                for keyword, material in materials.items():
+                                    if keyword in query_lower:
+                                        material_query = material
+                                        break
+                                
+                                # Fallback: try to extract chemical formula
+                                if not material_query:
+                                    formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b', query)
+                                    if formula_match:
+                                        candidate = formula_match.group(0)
+                                        if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP']:
+                                            material_query = candidate
+                            
+                            if material_query:
+                                st.info(f"🔍 Retrieving {material_query} data from Materials Project MCP...")
+                                
+                                # Force MCP call
+                                mp_result = st.session_state.mp_agent.search(material_query)
+                                if mp_result and not mp_result.get('error'):
+                                    st.success(f"✅ Retrieved MP data: {mp_result.get('material_id', 'Unknown')}")
+                                    # Cache the real MP data
+                                    model_instance._cached_mp_data = mp_result
+                                else:
+                                    st.warning(f"⚠️ MP search failed: {mp_result.get('error', 'Unknown error')}")
+                            else:
+                                st.info("🔍 No specific material detected, using general MP search...")
+                        except Exception as e:
+                            st.error(f"❌ MP MCP call failed: {e}")
+                    
                     # Use standard model
                     response = model_instance.generate_response(
                         query=query,
@@ -654,6 +1015,199 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     # Response text
                     st.markdown("### 📝 Generated Response")
                     st.markdown(response.get("text", "No response text"))
+                    
+                    # Braket-specific visualizations
+                    if "braket_data" in response and response["braket_data"]:
+                        braket_data = response["braket_data"]
+                        
+                        # Check for Braket errors first
+                        if "error" in braket_data:
+                            st.error(f"⚠️ Braket MCP Error: {braket_data['error']}")
+                            st.info("💡 Braket MCP had an issue with complex circuit generation. The Materials Project data above is still valid.")
+                        elif "ascii_visualization" in braket_data:
+                            st.markdown("### 🎨 ASCII Circuit Diagram")
+                            st.code(braket_data["ascii_visualization"], language="text")
+                        
+                        # Show circuit description if available
+                        if "description" in braket_data:
+                            description = braket_data["description"]
+                            if isinstance(description, dict):
+                                if "gate_sequence" in description:
+                                    st.markdown("### 🔄 Gate Sequence")
+                                    for i, step in enumerate(description["gate_sequence"], 1):
+                                        st.write(f"{i}. {step}")
+                                
+                                if "expected_behavior" in description:
+                                    st.markdown("### 🎯 Expected Behavior")
+                                    st.info(description["expected_behavior"])
+                        
+                        # Show device information if available
+                        if "devices" in braket_data:
+                            st.markdown("### 🖥️ Quantum Devices")
+                            devices = braket_data["devices"]
+                            for device in devices[:5]:  # Show first 5 devices
+                                status_icon = "✅" if device.get("status") == "ONLINE" else "⚠️" if device.get("status") == "OFFLINE" else "❌"
+                                st.write(f"{status_icon} **{device.get('device_name', 'Unknown')}** - {device.get('provider_name', 'Unknown')} ({device.get('status', 'Unknown')})")
+                                if device.get('qubits'):
+                                    st.write(f"   • Qubits: {device.get('qubits')}")
+                        
+                        # Show Braket metadata (only if no error)
+                        if "error" not in braket_data:
+                            with st.expander("🔧 Braket MCP Data"):
+                                st.json(braket_data)
+                        else:
+                            with st.expander("🔧 Braket MCP Error Details"):
+                                st.json(braket_data)
+                    
+                    # Check for structure data from any MCP tool and display after response
+                    # Handle both successful Strands results and direct MCP results
+                    mcp_results = None
+                    strands_data = None
+                    
+                    if "strands_data" in response and response["strands_data"]:
+                        strands_data = response["strands_data"]
+                        if "mcp_results" in strands_data:
+                            mcp_results = strands_data["mcp_results"]
+                    
+                    if not mcp_results and hasattr(model_instance, '_cached_mp_data') and model_instance._cached_mp_data:
+                        # Fallback: check if model has cached MCP results from direct calls
+                        cached_data = model_instance._cached_mp_data
+                        if isinstance(cached_data, dict) and "structure_uri" in cached_data:
+                            mcp_results = {"select_material_by_id": cached_data}
+                    
+                    if mcp_results:
+                        
+                        # Helper function to display structure data
+                        def display_structure_data(result, tool_name):
+                            if isinstance(result, dict):
+                                # Check if it has structure_data field
+                                if "structure_data" in result:
+                                    structure_data = result["structure_data"]
+                                    if "poscar" in structure_data:
+                                        st.markdown(f"### 📋 {tool_name} - POSCAR Structure Data")
+                                        st.code(structure_data["poscar"], language="text")
+                                    if "description" in structure_data:
+                                        st.markdown(f"### 🔬 {tool_name} - Structure Description")
+                                        st.text(structure_data["description"])
+                                else:
+                                    # Try to extract from combined text format
+                                    combined_text = result.get("description", "")
+                                    if "POSCAR DATA:" in combined_text:
+                                        poscar_start = combined_text.find("POSCAR DATA:") + len("POSCAR DATA:")
+                                        poscar_data = combined_text[poscar_start:].strip()
+                                        if poscar_data:
+                                            st.markdown(f"### 📋 {tool_name} - POSCAR Structure Data")
+                                            st.code(poscar_data, language="text")
+                                    
+                                    if "STRUCTURE DESCRIPTION:" in combined_text:
+                                        desc_start = combined_text.find("STRUCTURE DESCRIPTION:") + len("STRUCTURE DESCRIPTION:")
+                                        desc_end = combined_text.find("POSCAR DATA:") if "POSCAR DATA:" in combined_text else len(combined_text)
+                                        desc_data = combined_text[desc_start:desc_end].strip()
+                                        if desc_data:
+                                            st.markdown(f"### 🔬 {tool_name} - Structure Description")
+                                            st.text(desc_data)
+                            elif isinstance(result, list) and len(result) >= 2:
+                                # Handle list format from MCP server
+                                try:
+                                    for item in result:
+                                        if isinstance(item, dict) and "text" in item:
+                                            text = item["text"]
+                                            if "STRUCTURE DESCRIPTION:" in text:
+                                                desc_data = text.replace("STRUCTURE DESCRIPTION:\n", "")
+                                                st.markdown(f"### 🔬 {tool_name} - Structure Description")
+                                                st.text(desc_data)
+                                            elif "POSCAR DATA:" in text:
+                                                poscar_data = text.replace("POSCAR DATA:\n", "")
+                                                st.markdown(f"### 📋 {tool_name} - POSCAR Structure Data")
+                                                st.code(poscar_data, language="text")
+                                except Exception as e:
+                                    st.warning(f"Could not parse {tool_name} structure data: {e}")
+                        
+                        # Check each MCP tool that creates structures
+                        if "moire_homobilayer" in mcp_results:
+                            display_structure_data(mcp_results["moire_homobilayer"], "Moire Bilayer")
+                        
+                        if "build_supercell" in mcp_results:
+                            supercell_result = mcp_results["build_supercell"]
+                            # Handle supercell result format
+                            if isinstance(supercell_result, dict):
+                                # Check for description field containing POSCAR
+                                description = supercell_result.get("description", "")
+                                if "Supercell POSCAR:" in description:
+                                    poscar_start = description.find("Supercell POSCAR:") + len("Supercell POSCAR:")
+                                    poscar_data = description[poscar_start:].strip()
+                                    if poscar_data:
+                                        st.markdown("### 📋 Supercell - POSCAR Structure Data")
+                                        st.code(poscar_data, language="text")
+                                
+                                # Show supercell info
+                                if "supercell_uri" in supercell_result:
+                                    st.markdown("### 🔬 Supercell - Structure Description")
+                                    info_text = f"Supercell URI: {supercell_result['supercell_uri']}\n"
+                                    if "description" in supercell_result:
+                                        # Extract basic info (before POSCAR section)
+                                        desc = supercell_result["description"]
+                                        if "Supercell POSCAR:" in desc:
+                                            info_text += desc[:desc.find("Supercell POSCAR:")]
+                                        else:
+                                            info_text += desc
+                                    st.text(info_text)
+                            else:
+                                # Fallback to generic display
+                                display_structure_data(supercell_result, "Supercell")
+                        
+                        if "create_structure_from_poscar" in mcp_results:
+                            display_structure_data(mcp_results["create_structure_from_poscar"], "POSCAR Structure")
+                        
+                        # Also check for POSCAR workflow in Strands tasks
+                        if "tasks" in strands_data and isinstance(strands_data["tasks"], list):
+                            for task in strands_data["tasks"]:
+                                if isinstance(task, dict) and "action" in task and task["action"] == "match_poscar_to_mp":
+                                    # Found POSCAR task, display the input data
+                                    poscar_text = task.get("inputs", {}).get("poscar_text", "")
+                                    if poscar_text:
+                                        st.markdown(f"### 📋 POSCAR Structure - Input Data")
+                                        st.code(poscar_text, language="text")
+                                        
+                                        # Show basic structure info
+                                        lines = poscar_text.strip().split('\n')
+                                        if len(lines) >= 6:
+                                            formula = lines[0].strip()
+                                            lattice_a = lines[2].split()[0] if len(lines[2].split()) > 0 else "N/A"
+                                            st.markdown(f"### 🔬 POSCAR Structure - Basic Info")
+                                            st.text(f"Formula: {formula}\nLattice parameter a: {lattice_a} Å\nStructure: Created from POSCAR input")
+                                    break  # Only process first POSCAR task
+                        
+                        if "select_material_by_id" in mcp_results:
+                            # Handle material data format - get POSCAR from structure URI
+                            material_data = mcp_results["select_material_by_id"]
+                            if isinstance(material_data, dict) and "structure_uri" in material_data:
+                                structure_uri = material_data["structure_uri"]
+                                try:
+                                    # Get POSCAR data from MCP agent
+                                    if hasattr(st.session_state.mp_agent, 'get_structure_data'):
+                                        poscar_result = st.session_state.mp_agent.get_structure_data(structure_uri, "poscar")
+                                        if poscar_result and poscar_result.strip() and "Structure not found" not in poscar_result:
+                                            st.markdown(f"### 📋 Material Structure - POSCAR Structure Data")
+                                            st.code(poscar_result, language="text")
+                                        else:
+                                            st.warning("⚠️ POSCAR data not available or structure not found")
+                                    
+                                    # Create compact description from material data
+                                    material_id = material_data.get("material_id", "N/A")
+                                    formula = material_data.get("formula", "Unknown")
+                                    band_gap = material_data.get("band_gap", "N/A")
+                                    formation_energy = material_data.get("formation_energy", "N/A")
+                                    crystal_system = material_data.get("crystal_system", "N/A")
+                                    
+                                    desc = f"Material id: {material_id}\nFormula: {formula}\nBand Gap: {band_gap} eV\nFormation Energy: {formation_energy} eV/atom\nCrystal System: {crystal_system}"
+                                    st.markdown(f"### 🔬 Material Structure - Structure Description")
+                                    st.text(desc)
+                                except Exception as e:
+                                    st.warning(f"Could not retrieve structure data: {e}")
+                            else:
+                                # Fallback to generic display
+                                display_structure_data(material_data, "Material Structure")
                     
                     # Code output (only if there is actual code and it's different from what's in the text)
                     if "code" in response and response["code"] is not None and response["code"].strip():
@@ -789,7 +1343,7 @@ def format_strands_response(strands_result: dict, workflow_type: str) -> str:
 {format_dft_parameters(strands_result.get('dft_parameters', {}))}
 
 ### Quantum Code Generation
-{format_quantum_code(strands_result.get('quantum_code', ''))}
+{format_quantum_code(strands_result.get('quantum_simulator', {}).get('quantum_simulation', {}).get('code', ''))}
 """
     
     elif workflow_type == "Complex Query":
@@ -864,12 +1418,29 @@ def format_dft_parameters(dft_data: dict) -> str:
 - **Source:** {dft_data.get('source', 'Strands estimation')}
 """
 
-def format_quantum_code(quantum_code: str) -> str:
+def format_quantum_code(quantum_code) -> str:
     """Format quantum code generation"""
     if not quantum_code:
         return "No quantum code generated"
     
-    return f"Generated quantum computing code with {len(quantum_code.split('\\n'))} lines"
+    # Extract text from AgentResult if needed
+    code_text = quantum_code
+    if hasattr(quantum_code, 'text'):
+        code_text = quantum_code.text
+    elif hasattr(quantum_code, 'message') and hasattr(quantum_code.message, 'content'):
+        # Handle nested AgentResult structure
+        content = quantum_code.message.content
+        if isinstance(content, list) and len(content) > 0:
+            code_text = content[0].get('text', str(quantum_code))
+        else:
+            code_text = str(content)
+    elif not isinstance(quantum_code, str):
+        code_text = str(quantum_code)
+    
+    if isinstance(code_text, str) and len(code_text) > 100:
+        return f"Generated quantum computing code with {len(code_text.split('\n'))} lines"
+    else:
+        return "Quantum code generation in progress..."
 
 def format_iterative_summary(iterations: list) -> str:
     """Format iterative analysis summary"""
@@ -898,8 +1469,42 @@ def display_strands_results(strands_data: dict, workflow_type: str):
             with st.expander("⚛️ DFT Parameters Details"):
                 st.json(strands_data['dft_parameters'])
         
-        # Hamiltonian code
-        if 'hamiltonian_code' in strands_data:
+        # Quantum simulation code
+        if 'quantum_simulator' in strands_data:
+            quantum_sim_data = strands_data['quantum_simulator']
+            if isinstance(quantum_sim_data, dict) and 'quantum_simulation' in quantum_sim_data:
+                quantum_result = quantum_sim_data['quantum_simulation']
+                if isinstance(quantum_result, dict) and 'code' in quantum_result:
+                    code_content = quantum_result['code']
+                    
+                    # Extract text from AgentResult if needed
+                    if hasattr(code_content, 'text'):
+                        code_text = code_content.text
+                    elif hasattr(code_content, 'message') and hasattr(code_content.message, 'content'):
+                        content = code_content.message.content
+                        if isinstance(content, list) and len(content) > 0:
+                            code_text = content[0].get('text', str(code_content))
+                        else:
+                            code_text = str(content)
+                    elif isinstance(code_content, str):
+                        code_text = code_content
+                    else:
+                        code_text = str(code_content)
+                    
+                    if code_text and len(code_text) > 100:
+                        with st.expander("🧮 Generated Quantum Simulation Code"):
+                            st.code(code_text, language="python")
+                            
+                            # Add download button for the code
+                            st.download_button(
+                                label="📥 Download Quantum Code",
+                                data=code_text,
+                                file_name="quantum_simulation.py",
+                                mime="text/plain"
+                            )
+        
+        # Fallback: check for hamiltonian_code
+        elif 'hamiltonian_code' in strands_data:
             with st.expander("🧮 Generated Hamiltonian Code"):
                 st.code(strands_data['hamiltonian_code'], language="python")
     
