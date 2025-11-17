@@ -640,17 +640,40 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 if mp_match:
                     formula = mp_match.group(0)
                 else:
-                    # Try chemical formulas (but exclude common words)
-                    formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b', query)
-                    if formula_match:
-                        candidate = formula_match.group(0)
-                        # Exclude common quantum computing terms
-                        if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP', 'POSCAR']:
-                            formula = candidate
-                        else:
+                    # Try chemical formulas - comprehensive pattern matching
+                    compound_patterns = [
+                        # Common oxides
+                        r'\bTiO2\b', r'\bSiO2\b', r'\bAl2O3\b', r'\bFe2O3\b', r'\bCuO\b',
+                        r'\bZnO\b', r'\bMgO\b', r'\bCaO\b', r'\bNiO\b', r'\bCoO\b',
+                        # Perovskites
+                        r'\bBaTiO3\b', r'\bSrTiO3\b', r'\bCaTiO3\b', r'\bLaAlO3\b',
+                        # Semiconductors
+                        r'\bGaAs\b', r'\bInP\b', r'\bGaN\b', r'\bSiC\b', r'\bAlN\b',
+                        # 2D Materials
+                        r'\bMoS2\b', r'\bWS2\b', r'\bWSe2\b', r'\bMoSe2\b', r'\bBN\b',
+                        # Complex compounds
+                        r'\bYBa2Cu3O7\b', r'\bBi2Te3\b', r'\bSi3N4\b', r'\bWC\b', r'\bTiC\b',
+                        # Water and common molecules
+                        r'\bH2O\b', r'\bNH3\b', r'\bCH4\b', r'\bCO2\b', r'\bCO\b'
+                    ]
+                    
+                    for pattern in compound_patterns:
+                        match = re.search(pattern, query, re.IGNORECASE)
+                        if match:
+                            formula = match.group(0)
+                            break
+                    
+                    if not formula:
+                        # Try general chemical formulas (but exclude common words)
+                        formula_matches = re.findall(r'\b([A-Z][a-z]?\d*)+\b', query)
+                        for candidate in formula_matches:
+                            # Exclude common quantum computing terms
+                            if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP', 'POSCAR', 'DATA', 'PROJECT']:
+                                formula = candidate
+                                break
+                        
+                        if not formula:
                             formula = "H2"  # Default fallback
-                    else:
-                        formula = "H2"
             logger.info(f"🔍 BASE MODEL: Extracted formula '{formula}' from query: '{query[:100]}...'")
             
             # Check for cached Strands data first, then use supervisor agent
