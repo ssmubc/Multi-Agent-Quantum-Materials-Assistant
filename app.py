@@ -21,6 +21,7 @@ from models.openai_model import OpenAIModel
 from models.qwen_model import QwenModel
 from models.deepseek_model import DeepSeekModel
 from models.claude_opus_model import ClaudeOpusModel
+from models.claude_sonnet_model import ClaudeSonnetModel
 
 from utils.materials_project_agent import MaterialsProjectAgent
 from utils.enhanced_mcp_client import EnhancedMCPAgent
@@ -247,7 +248,7 @@ def initialize_models():
             "region": "us-west-2",
             "model_id": "meta.llama3-70b-instruct-v1:0"
         },
-        "OpenAI GPT": {
+        "OpenAI OSS-120B": {
             "class": OpenAIModel,
             "region": "us-west-2",
             "model_id": "openai.gpt-oss-20b-1:0"
@@ -266,6 +267,11 @@ def initialize_models():
             "class": ClaudeOpusModel,
             "region": "us-east-1",
             "model_id": "us.anthropic.claude-opus-4-1-20250805-v1:0"
+        },
+        "Claude Sonnet 4.5": {
+            "class": ClaudeSonnetModel,
+            "region": "us-east-1",
+            "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
         },
 
     }
@@ -567,7 +573,7 @@ def main():
                     st.error(f"❌ Strands initialization failed: {e}")
                     agent_type = "Standard Agents"
         if demo_mode:
-            available_models = ["Nova Pro", "Llama 4 Scout", "Llama 3 70B", "OpenAI GPT OSS", "Qwen 3-32B", "DeepSeek R1", "Claude Opus 4.1"]
+            available_models = ["Nova Pro", "Llama 4 Scout", "Llama 3 70B", "OpenAI OSS-120B", "Qwen 3-32B", "DeepSeek R1", "Claude Opus 4.1", "Claude Sonnet 4.5"]
         else:
             available_models = [name for name, info in st.session_state.models.items() 
                               if info["status"] == "ready"]
@@ -586,9 +592,9 @@ def main():
         if selected_model:
             if demo_mode:
                 regions = {"Nova Pro": "us-east-1", "Llama 4 Scout": "us-east-1", 
-                          "Llama 3 70B": "us-west-2", "OpenAI GPT OSS": "us-west-2", 
+                          "Llama 3 70B": "us-west-2", "OpenAI OSS-120B": "us-west-2", 
                           "Qwen 3-32B": "us-east-1", "DeepSeek R1": "us-east-1", 
-                          "Claude Opus 4.1": "us-east-1"}
+                          "Claude Opus 4.1": "us-east-1", "Claude Sonnet 4.5": "us-east-1"}
                 st.info(f"""
                 **Selected Model:** {selected_model} (Demo Mode)  
                 **Region:** {regions.get(selected_model, "N/A")}  
@@ -1215,8 +1221,17 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         response_text = response.get("text", "")
                         code_content = response["code"].strip()
                         
-                        # Only show separate code section if code isn't already in the response
-                        if code_content not in response_text:
+                        # More intelligent check: look for substantial code blocks in response
+                        has_code_in_response = (
+                            "```python" in response_text or 
+                            "```" in response_text or
+                            "from qiskit" in response_text or
+                            "import qiskit" in response_text or
+                            len([line for line in response_text.split('\n') if line.strip().startswith(('from ', 'import ', 'def ', 'class '))]) > 3
+                        )
+                        
+                        # Only show separate code section if no substantial code is in the response
+                        if not has_code_in_response and code_content not in response_text:
                             st.markdown("### 💻 Generated Code")
                             st.code(response["code"], language="python")
                     
