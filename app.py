@@ -656,14 +656,16 @@ def main():
                     "Top P", 0.0, 1.0, 0.9, 0.1,
                     help="Nucleus sampling: Controls diversity by considering only the top P% of probable tokens. Lower values = more focused, higher values = more diverse."
                 )
-                # Disable MP data for Braket Framework since it's not used
-                mp_data_disabled = (braket_mode == "Amazon Braket Framework")
-                include_mp_data = st.checkbox(
-                    "Include Materials Project data", 
-                    value=mp_configured and not mp_data_disabled,
-                    disabled=mp_data_disabled,
-                    help="Materials Project data is not used with Amazon Braket Framework" if mp_data_disabled else "Include real material properties and structures in the response"
-                )
+                # Auto-determine MP data usage based on framework and configuration
+                include_mp_data = mp_configured and (braket_mode == "Qiskit Framework")
+                
+                # Show MP data status
+                if braket_mode == "Amazon Braket Framework":
+                    st.info("ℹ️ Materials Project data not used with Braket Framework")
+                elif mp_configured:
+                    st.success("✅ Materials Project data will be included automatically")
+                else:
+                    st.info("ℹ️ Configure Materials Project API to enable material data integration")
             
             # Parameter explanation
             with st.expander("ℹ️ Parameter Guide"):
@@ -684,14 +686,8 @@ def main():
                 - **Creative Writing:** Temperature 0.8, Top P 0.95
                 """)
             
-            # MCP Server Controls
-            st.markdown("**MCP Server Selection:**")
-            
-            force_braket_mcp = st.checkbox(
-                "Use Amazon Braket MCP for generating my response", 
-                value=False,
-                help="Force use of Braket MCP for quantum circuit generation (overrides framework selection)"
-            )
+            # Auto-determine Braket MCP usage based on framework selection
+            force_braket_mcp = (braket_mode == "Amazon Braket Framework")
         
         # Submit button
         if st.button("🚀 Generate Response", type="primary", disabled=not query.strip()):

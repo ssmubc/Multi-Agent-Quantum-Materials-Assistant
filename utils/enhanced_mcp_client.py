@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 class EnhancedMCPClient:
     """Enhanced MCP client for Materials Project server with advanced features"""
     
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, show_debug: bool = False, debug_callback=None):
         self.api_key = api_key
         self.server_process = None
+        self.show_debug = show_debug
+        self.debug_callback = debug_callback
         
     def start_server(self) -> bool:
         """Start the enhanced MCP server"""
@@ -228,9 +230,9 @@ class EnhancedMCPClient:
     
     def search_materials(self, formula: str) -> List[str]:
         """Search materials by formula"""
-        import streamlit as st
         logger.info(f"🔍 MCP: Searching materials for formula: {formula}")
-        st.write(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
         
         result = self.call_tool("search_materials_by_formula", {
             "chemical_formula": formula
@@ -249,25 +251,28 @@ class EnhancedMCPClient:
                 
                 # Check for error messages
                 if "Error searching materials" in text or "invalid fields requested" in text:
-                    st.error(f"❌ **MCP Server Error**: {text[:300]}...")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"❌ **MCP Server Error**: {text[:300]}...")
                     logger.error(f"💥 MCP: Server error - {text[:200]}...")
                     return []
                 
                 materials.append(text)
             
-            st.write(f"✅ **Found {len(materials)} materials for {formula}**")
-            st.write(f"📋 First result preview: {materials[0][:200]}..." if materials else "No results")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Found {len(materials)} materials for {formula}**")
+                self.debug_callback(f"📋 First result preview: {materials[0][:200]}..." if materials else "No results")
             logger.info(f"✅ MCP: Found {len(materials)} materials for {formula}")
             return materials
-        st.write(f"❌ No materials found for {formula}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"❌ No materials found for {formula}")
         logger.warning(f"❌ MCP: No materials found for {formula}")
         return []
     
     def get_material_by_id(self, material_id: str, search_results: List[str] = None) -> Optional[Dict[str, Any]]:
         """Get material by ID with structured data for base model"""
-        import streamlit as st
         logger.info(f"🔍 MCP: Getting material data for ID: {material_id}")
-        st.write(f"🔍 **MCP Tool 2**: Getting material data for ID: {material_id}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 2**: Getting material data for ID: {material_id}")
         
         result = self.call_tool("select_material_by_id", {
             "material_id": material_id
@@ -276,23 +281,28 @@ class EnhancedMCPClient:
         if result and len(result) >= 2:
             description = result[0].get("text", "")
             structure_uri = result[1].get("text", "").replace("structure uri: ", "")
-            st.write(f"📋 Raw MCP response: {len(result)} items received")
-            st.write(f"🔗 Structure URI: {structure_uri}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"📋 Raw MCP response: {len(result)} items received")
+                self.debug_callback(f"🔗 Structure URI: {structure_uri}")
             
             # Parse description to extract structured data
             data = self._parse_material_description(description, material_id, structure_uri, search_results)
-            st.write(f"📊 Parsed structured data: {list(data.keys())}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"📊 Parsed structured data: {list(data.keys())}")
             
             # Get POSCAR geometry if available
             poscar_data = self.get_structure_data(structure_uri, "poscar")
             if poscar_data:
                 data["geometry"] = self._poscar_to_geometry(poscar_data)
-                st.write(f"🧬 Geometry extracted: {len(data['geometry'])} chars")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"🧬 Geometry extracted: {len(data['geometry'])} chars")
             
-            st.write(f"✅ **Final structured data for LLM**: {data}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Final structured data for LLM**: {data}")
             logger.info(f"✅ MCP: Retrieved structured material data for {material_id}")
             return data
-        st.write(f"❌ Material {material_id} not found")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"❌ Material {material_id} not found")
         logger.warning(f"❌ MCP: Material {material_id} not found")
         return None
     
@@ -301,7 +311,8 @@ class EnhancedMCPClient:
         import streamlit as st
         
         # Log the raw description for debugging
-        st.write(f"🔍 **Raw MCP Description**: {description[:500]}...")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **Raw MCP Description**: {description[:500]}...")
         logger.info(f"🔍 MCP: Raw description for {material_id}: {description[:200]}...")
         
         data = {
@@ -316,7 +327,8 @@ class EnhancedMCPClient:
             for result in search_results:
                 if material_id in result:
                     search_data = result
-                    st.write(f"🔍 **Found in search results**: {search_data[:200]}...")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"🔍 **Found in search results**: {search_data[:200]}...")
                     break
         
         # Extract formula (handle both basic and enhanced formats)
@@ -338,9 +350,11 @@ class EnhancedMCPClient:
         
         if formula:
             data["formula"] = formula
-            st.write(f"✅ **Formula extracted**: {data['formula']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Formula extracted**: {data['formula']}")
         else:
-            st.write("❌ **Formula not found**")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("❌ **Formula not found**")
         
         # Extract band gap (try search results first)
         band_gap = None
@@ -355,10 +369,12 @@ class EnhancedMCPClient:
         
         if band_gap is not None:
             data["band_gap"] = band_gap
-            st.write(f"✅ **Band Gap extracted**: {data['band_gap']} eV")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Band Gap extracted**: {data['band_gap']} eV")
         else:
             data["band_gap"] = 0.0
-            st.write(f"❌ **Band Gap not found**, using default: {data['band_gap']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"❌ **Band Gap not found**, using default: {data['band_gap']}")
         
         # Extract formation energy (try search results first)
         formation_energy = None
@@ -373,10 +389,12 @@ class EnhancedMCPClient:
         
         if formation_energy is not None:
             data["formation_energy"] = formation_energy
-            st.write(f"✅ **Formation Energy extracted**: {data['formation_energy']} eV/atom")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Formation Energy extracted**: {data['formation_energy']} eV/atom")
         else:
             data["formation_energy"] = -3.0
-            st.write(f"❌ **Formation Energy not found**, using default: {data['formation_energy']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"❌ **Formation Energy not found**, using default: {data['formation_energy']}")
         
         # Extract crystal system (handle both basic and enhanced formats)
         crystal_system = None
@@ -397,10 +415,12 @@ class EnhancedMCPClient:
         
         if crystal_system:
             data["crystal_system"] = crystal_system
-            st.write(f"✅ **Crystal System extracted**: {data['crystal_system']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Crystal System extracted**: {data['crystal_system']}")
             logger.info(f"✅ MCP: Crystal system found for {material_id}: {data['crystal_system']}")
         else:
-            st.write("❌ **Crystal System not found in description or search results**")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("❌ **Crystal System not found in description or search results**")
             logger.warning(f"❌ MCP: No crystal system found for {material_id}")
             
             # Try alternative patterns
@@ -413,10 +433,12 @@ class EnhancedMCPClient:
                 alt_match = re.search(pattern, description) or (search_data and re.search(pattern, search_data))
                 if alt_match:
                     data["space_group_info"] = alt_match.group(1).strip()
-                    st.write(f"ℹ️ **Alternative info found**: {pattern.split(':')[0]} = {data['space_group_info']}")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"ℹ️ **Alternative info found**: {pattern.split(':')[0]} = {data['space_group_info']}")
                     break
         
-        st.write(f"📊 **Final parsed data keys**: {list(data.keys())}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"📊 **Final parsed data keys**: {list(data.keys())}")
         return data
     
     def _poscar_to_geometry(self, poscar_str: str) -> str:
@@ -456,9 +478,10 @@ class EnhancedMCPClient:
     def get_structure_data(self, structure_uri: str, format: str = "poscar") -> Optional[str]:
         """Get structure data in POSCAR/CIF format with timeout protection"""
         import streamlit as st
-        st.write(f"🔍 **MCP Tool 3**: Getting {format.upper()} data for {structure_uri}")
-        timeout_val = 60 if format.lower() == "poscar" else 20
-        st.write(f"⏰ **Timeout protection**: {timeout_val} second limit for {format.upper()} generation")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 3**: Getting {format.upper()} data for {structure_uri}")
+            timeout_val = 60 if format.lower() == "poscar" else 20
+            self.debug_callback(f"⏰ **Timeout protection**: {timeout_val} second limit for {format.upper()} generation")
         
         result = self.call_tool("get_structure_data", {
             "structure_uri": structure_uri,
@@ -470,12 +493,15 @@ class EnhancedMCPClient:
                 data = item.get("text", "")
             else:
                 data = str(item)
-            st.write(f"✅ **Retrieved {format.upper()} data**: {len(data)} characters")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Retrieved {format.upper()} data**: {len(data)} characters")
             # Log first few lines for debugging
             lines = data.split('\n')[:5]
             logger.info(f"📋 MCP: First 5 lines of {format.upper()}: {lines}")
             return data
-        st.write(f"❌ Failed to get {format.upper()} data (timeout after {timeout_val}s or error)")
+        if self.show_debug and self.debug_callback:
+            timeout_val = 60 if format.lower() == "poscar" else 20
+            self.debug_callback(f"❌ Failed to get {format.upper()} data (timeout after {timeout_val}s or error)")
         return None
     
     # Additional MCP server tools
@@ -483,8 +509,8 @@ class EnhancedMCPClient:
     
     def create_structure_from_poscar(self, poscar_str: str) -> Optional[Dict[str, str]]:
         """Create structure from POSCAR string"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 4**: Creating structure from POSCAR ({len(poscar_str)} chars)")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 4**: Creating structure from POSCAR ({len(poscar_str)} chars)")
         
         result = self.call_tool("create_structure_from_poscar", {
             "poscar_str": poscar_str
@@ -494,9 +520,11 @@ class EnhancedMCPClient:
                 "uri_info": result[0].get("text", "") if isinstance(result[0], dict) else str(result[0]),
                 "description": result[1].get("text", "") if isinstance(result[1], dict) else str(result[1])
             }
-            st.write(f"✅ **Structure created**: {data['uri_info']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Structure created**: {data['uri_info']}")
             return data
-        st.write("❌ Failed to create structure from POSCAR")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to create structure from POSCAR")
         return None
     
     def create_structure_from_cif(self, cif_str: str) -> Optional[Dict[str, str]]:
@@ -513,8 +541,8 @@ class EnhancedMCPClient:
     
     def plot_structure(self, structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Optional[str]:
         """Plot structure and return base64 image"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 5**: Plotting structure {structure_uri}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 5**: Plotting structure {structure_uri}")
         
         result = self.call_tool("plot_structure", {
             "structure_uri": structure_uri,
@@ -524,25 +552,30 @@ class EnhancedMCPClient:
             for item in result:
                 if item.get("type") == "image":
                     image_data = item.get("data", "")
-                    st.write(f"✅ **Structure plot generated**: {len(image_data)} chars base64")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"✅ **Structure plot generated**: {len(image_data)} chars base64")
                     return image_data
-        st.write("❌ Failed to generate structure plot")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to generate structure plot")
         return None
     
     def build_supercell(self, bulk_structure_uri: str, supercell_parameters: Dict[str, Any]) -> Optional[Dict[str, str]]:
         """Build supercell from bulk structure with retry logic"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 6**: Building supercell from {bulk_structure_uri}")
-        st.write(f"🔧 **Parameters**: {supercell_parameters}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 6**: Building supercell from {bulk_structure_uri}")
+            self.debug_callback(f"🔧 **Parameters**: {supercell_parameters}")
         
         # Restart server if it died
         if not self.server_process or self.server_process.poll() is not None:
-            st.write("🔄 **Restarting MCP server** (previous process died)")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("🔄 **Restarting MCP server** (previous process died)")
             logger.info("🔄 MCP: Restarting server for supercell operation")
             if self.start_server():
-                st.write("✅ **Server restarted successfully**")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback("✅ **Server restarted successfully**")
             else:
-                st.write("❌ **Failed to restart server**")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback("❌ **Failed to restart server**")
                 return None
         
         result = self.call_tool("build_supercell", {
@@ -554,9 +587,11 @@ class EnhancedMCPClient:
                 "supercell_uri": result[0].get("text", "") if isinstance(result[0], dict) else str(result[0]),
                 "description": result[1].get("text", "") if isinstance(result[1], dict) else str(result[1])
             }
-            st.write(f"✅ **Supercell built**: {data['supercell_uri']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Supercell built**: {data['supercell_uri']}")
             return data
-        st.write("❌ Failed to build supercell")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to build supercell")
         return None
     
     def __del__(self):
@@ -567,8 +602,8 @@ class EnhancedMCPClient:
 class EnhancedMCPAgent:
     """Enhanced MCP agent with full Materials Project server capabilities"""
     
-    def __init__(self, api_key: str):
-        self.client = EnhancedMCPClient(api_key)
+    def __init__(self, api_key: str, show_debug: bool = False, debug_callback=None):
+        self.client = EnhancedMCPClient(api_key, show_debug, debug_callback)
         self.client.start_server()
     
     def search(self, query: str) -> Dict[str, Any]:
@@ -740,10 +775,13 @@ class EnhancedMCPAgent:
                     "description": text,
                     "structure_data": structure_data
                 }
-                st.write(f"✅ **Moire bilayer generated**: {data['moire_uri']}")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"✅ **Moire bilayer generated**: {data['moire_uri']}")
                 return data
             else:
-                st.write(f"❌ **Moire generation error**: {text}")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"❌ **Moire generation error**: {text}")
                 return None
-        st.write("❌ Failed to generate moire bilayer")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to generate moire bilayer")
         return None

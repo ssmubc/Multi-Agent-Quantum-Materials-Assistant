@@ -101,3 +101,41 @@ install_mcp.py
 .ebextensions/02_https_alb.config
 .ebextensions/03_cloudfront_security.config
 set_api_key.bat
+
+# Local run scripts with API keys
+run_app.bat
+
+# Development/backup files
+.ebextensions_backup/
+*.zip
+BRAKET_SETUP.md
+BraketMCP/
+DEPLOYMENT_*.md
+DOCKER_BUILD_FIX.md
+aws_security_recommendations.md
+install_braket.py
+requirements_minimal.txt
+
+# Version directories
+0.*/
+1.*/
+2.*/
+
+# Enhanced MCP development files
+enhanced_mcp_materials/data_class.py
+enhanced_mcp_materials/elastic*
+enhanced_mcp_materials/moire_helper.py
+enhanced_mcp_materials/old*
+enhanced_mcp_materials/plot_helper.py
+enhanced_mcp_materials/rester.py
+enhanced_mcp_materials/server_*
+enhanced_mcp_materials/structure_helper.py
+
+# Utils development files
+utils/debug_logger.py
+utils/enhanced_*
+utils/local_*
+utils/simple_*
+
+# Agent development files
+agents/*_fixed.py
