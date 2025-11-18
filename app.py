@@ -48,7 +48,7 @@ print("="*60 + "\n")
 
 # Page configuration
 st.set_page_config(
-    page_title="Quantum Matter LLM Testing Platform",
+    page_title="Quantum Materials Code Generation and Simulation - AWS Bedrock, Strands Agents & MCP",
     page_icon="⚛️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -333,7 +333,8 @@ def main():
     initialize_session_state()
     
     # Header
-    st.markdown('<h1 class="main-header">⚛️ Quantum Matter LLM Testing Platform</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">⚛️ Quantum Materials Code Generation and Simulation</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align: center; color: #666; font-size: 1.1rem; margin-top: -1rem;">AWS Bedrock, Strands Agents & MCP</p>', unsafe_allow_html=True)
     
     # Sidebar configuration
     st.sidebar.title("🔧 Configuration")
@@ -457,114 +458,45 @@ def main():
             # Braket mode toggle
             braket_mode = st.selectbox(
                 "Quantum Framework:",
-                ["Qiskit Only", "Amazon Braket", "Both Frameworks"],
-                help="Choose quantum computing framework for code generation"
+                ["Qiskit Framework", "Amazon Braket Framework"],
+                help="Qiskit: Materials science + VQE circuits | Braket: Simple algorithms (Bell, GHZ, QFT)"
             )
             
-            # Show mode-specific information
-            if braket_mode == "Qiskit Only":
-                st.info("""
-                **🔬 Qiskit Mode:**
-                - ✅ Full VQE/materials science support
-                - ✅ Works with Materials Project data
-                - ✅ Generates Qiskit/Qiskit-Nature code
-                - ✅ Supports complex parameterized circuits
-                """)
-            elif braket_mode == "Amazon Braket":
-                st.warning("""
-                **⚛️ Braket Mode - IMPORTANT LIMITATIONS:**
-                - ⚠️ NO VQE circuits for materials (will create simple GHZ instead)
-                - ⚠️ NO Materials Project integration
-                - ⚠️ Cannot handle "VQE for graphene" - creates generic circuits
-                - ✅ Only: Bell states, GHZ states, QFT, device listing
-                - ✅ Generates Braket SDK code + ASCII diagrams
-                - 💡 For materials science: Switch to Qiskit mode
-                """)
-            else:  # Both Frameworks
-                st.info("""
-                **🔄 Both Frameworks Mode:**
-                - 🔬 Materials science → Qiskit code
-                - ⚛️ Simple algorithms → Braket MCP
-                - 🤖 Auto-detects based on query type
-                """)
+            # Framework selection guide
+            st.info("""
+            **🔬 Qiskit Framework:** Use for materials science, VQE circuits, and Materials Project integration  
+            **⚛️ Braket Framework:** Use for simple quantum algorithms (Bell pairs, GHZ states, QFT)
+            """)
+            
+
             
             # Show Braket features
-            if braket_mode != "Qiskit Only":
-                with st.expander("🚀 Braket Features Available"):
+            if braket_mode != "Qiskit Framework":
+                with st.expander("🚀 Braket MCP Capabilities"):
                     st.info("""
-                    **Amazon Braket MCP Supports:**
-                    - 🔄 Pre-built quantum circuits (Bell pairs, GHZ, QFT)
-                    - 🖥️ Local simulator execution
-                    - ☁️ AWS quantum device listing
-                    - 📊 ASCII circuit diagrams
-                    - 📈 Results analysis and visualization
+                    **Supported Operations:**
+                    • Bell pairs, GHZ states, QFT circuits
+                    • AWS quantum device listing
+                    • ASCII circuit diagrams
+                    • Local simulator execution
+                    
+                    **Example Queries:**
+                    • "Create a Bell pair circuit"
+                    • "Generate 4-qubit GHZ state with ASCII diagram"
+                    • "Show available Braket devices"
                     """)
-                    
-                    st.warning("""
-                    **⚠️ Braket MCP Limitations:**
-                    - ❌ Does NOT support parameterized VQE circuits
-                    - ❌ Cannot generate complex ansätze with symbolic parameters
-                    - ❌ VQE circuits need quantum hardware (expensive) or HPC simulators
-                    - ✅ Use for simple demonstration circuits only
-                    - ✅ For VQE/materials science: Use Materials Project + Qiskit
-                    """)
-                    
-                    st.success("""
-                    **✅ Supported Braket MCP Queries:**
-                    - "Create a Bell pair circuit"
-                    - "Generate 4-qubit GHZ state with ASCII diagram"
-                    - "Show available Braket devices"
-                    - "Create QFT circuit for 3 qubits"
-                    
-                    **📝 Note:** Code generation only - no execution (VQE needs quantum hardware)
-                    """)
-                    
-                    # Test Braket button
-                    if st.button("🧪 Test Braket Integration"):
-                        test_result = braket_integration.create_bell_pair_circuit()
-                        if "error" not in test_result:
-                            st.success("✅ Braket integration working!")
-                            if "ascii_visualization" in test_result:
-                                st.code(test_result["ascii_visualization"], language="text")
-                        else:
-                            st.error(f"❌ Braket test failed: {test_result['error']}")
-                    
-                    # Additional Braket tests
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        if st.button("🔗 Test GHZ Circuit"):
-                            ghz_result = braket_integration.create_ghz_circuit(3)
-                            if "error" not in ghz_result:
-                                st.success("✅ GHZ circuit created!")
-                                if "ascii_visualization" in ghz_result:
-                                    st.code(ghz_result["ascii_visualization"], language="text")
-                            else:
-                                st.error(f"❌ GHZ test failed: {ghz_result['error']}")
-                    
-                    with col_b:
-                        if st.button("🖥️ List Devices"):
-                            devices_result = braket_integration.list_braket_devices()
-                            if "error" not in devices_result:
-                                st.success(f"✅ Found {devices_result.get('total_devices', 0)} devices")
-                                with st.expander("Device List"):
-                                    for device in devices_result.get('devices', [])[:3]:  # Show first 3
-                                        st.write(f"• {device.get('device_name', 'Unknown')} ({device.get('status', 'Unknown')})")
-                            else:
-                                st.error(f"❌ Device list failed: {devices_result['error']}")
         else:
             st.warning("⚠️ Braket MCP Server Not Available")
             st.info("💡 Install dependencies: `pip install amazon-braket-sdk qiskit-braket-provider fastmcp`")
-            braket_mode = "Qiskit Only"
+            braket_mode = "Qiskit Framework"
         
-        # Agent type selection
-        agent_type = st.selectbox(
-            "Agent Framework:",
-            ["Standard Agents", "AWS Strands"],
-            help="Choose between custom agents or AWS Strands framework"
-        )
+        # AWS Strands Agents (always enabled)
+        agent_type = "AWS Strands Agents SDK"
+        st.markdown("#### 🧠 AWS Strands Agents SDK")
+        st.success("✅ Advanced multi-agent workflow system active")
         
-        # Initialize Strands agents if selected
-        if agent_type == "AWS Strands" and st.session_state.mp_agent:
+        # Initialize Strands agents
+        if st.session_state.mp_agent:
             if not st.session_state.strands_supervisor:
                 try:
                     st.session_state.strands_supervisor = StrandsSupervisorAgent(st.session_state.mp_agent)
@@ -574,7 +506,6 @@ def main():
                         'structure_agent': StrandsStructureAgent(st.session_state.mp_agent),
                         'agentic_loop': StrandsAgenticLoop(st.session_state.mp_agent)
                     }
-                    st.success("✅ AWS Strands agents initialized")
                 except Exception as e:
                     st.error(f"❌ Strands initialization failed: {e}")
                     agent_type = "Standard Agents"
@@ -619,32 +550,28 @@ def main():
     with col2:
         st.subheader("💬 Query Interface")
         
-        # Optional POSCAR upload for Strands (auto-detected)
+        # Optional POSCAR upload (auto-detected by Strands)
         poscar_text = None
-        if agent_type == "AWS Strands":
-            st.markdown("#### 📁 Optional: POSCAR File Upload")
-            st.info("💡 Strands will auto-detect if POSCAR analysis is needed")
-            uploaded_file = st.file_uploader("Upload POSCAR file (optional)", type=['txt', 'poscar', 'POSCAR'])
-            if uploaded_file:
-                poscar_text = uploaded_file.read().decode('utf-8')
-                st.text_area("POSCAR Content:", poscar_text, height=150, disabled=True)
-            else:
-                poscar_text = st.text_area(
-                    "Or paste POSCAR content (optional):",
-                    height=100,
-                    placeholder="Si\n1.0\n5.43 0 0\n0 5.43 0\n0 0 5.43\nSi\n2\nDirect\n0.0 0.0 0.0\n0.25 0.25 0.25"
-                )
+        st.markdown("#### 📁 Optional: POSCAR File Upload")
+        st.info("💡 AWS Strands will auto-detect if POSCAR analysis is needed")
+        uploaded_file = st.file_uploader("Upload POSCAR file (optional)", type=['txt', 'poscar', 'POSCAR'])
+        if uploaded_file:
+            poscar_text = uploaded_file.read().decode('utf-8')
+            st.text_area("POSCAR Content:", poscar_text, height=150, disabled=True)
+        else:
+            poscar_text = st.text_area(
+                "Or paste POSCAR content (optional):",
+                height=100,
+                placeholder="Si\n1.0\n5.43 0 0\n0 5.43 0\n0 0 5.43\nSi\n2\nDirect\n0.0 0.0 0.0\n0.25 0.25 0.25"
+            )
         
         # Query input with Braket-specific examples
-        if braket_mode == "Amazon Braket":
+        if braket_mode == "Amazon Braket Framework":
             placeholder_text = "Example: Create a 4-qubit GHZ circuit with ASCII diagram"
-            help_text = "⚛️ Braket Mode: Simple quantum algorithms only (Bell, GHZ, QFT, devices). NO materials science."
-        elif braket_mode == "Both Frameworks":
-            placeholder_text = "Example: Generate VQE for TiO2 (Qiskit) OR Create GHZ circuit (Braket)"
-            help_text = "🔄 Auto-detects: Materials science → Qiskit, Simple algorithms → Braket MCP"
+            help_text = "⚛️ Braket Framework: Simple quantum algorithms only (Bell, GHZ, QFT, devices). NO materials science."
         else:
             placeholder_text = "Example: Generate a VQE ansatz for H2 molecule using UCCSD with Jordan-Wigner mapping"
-            help_text = "🔬 Qiskit Mode: Full quantum computing and materials science support"
+            help_text = "🔬 Qiskit Framework: Full quantum computing and materials science support"
         
         query = st.text_area(
             "Enter your quantum matter/materials science question:",
@@ -654,8 +581,8 @@ def main():
         )
         
         # Mode-specific examples
-        if braket_mode == "Amazon Braket":
-            st.markdown("**⚛️ Braket Mode Examples (Algorithm Demos Only):**")
+        if braket_mode == "Amazon Braket Framework":
+            st.markdown("**⚛️ Braket Framework Examples:**")
             col_ex1, col_ex2 = st.columns(2)
             with col_ex1:
                 if st.button("📝 GHZ Circuit", help="Simple GHZ circuit with ASCII"):
@@ -668,9 +595,7 @@ def main():
                 if st.button("🎯 QFT Circuit", help="Quantum Fourier Transform"):
                     st.session_state.example_query = "Generate a 3-qubit QFT circuit with Braket"
             
-            st.warning("⚠️ **Materials Science NOT Supported in Braket Mode**")
-            st.warning("📝 **Example:** 'VQE for graphene' will create a generic GHZ circuit, NOT a real VQE. Switch to Qiskit mode for actual materials science.")
-            st.info("💡 **For VQE/Materials:** Use Qiskit mode with Materials Project integration")
+
         
         elif braket_mode == "Both Frameworks":
             st.markdown("**🔄 Both Frameworks Examples:**")
@@ -688,8 +613,8 @@ def main():
                 if st.button("📊 Device Status", help="Braket device information"):
                     st.session_state.example_query = "Show Braket device status"
         
-        elif braket_mode == "Qiskit Only":
-            st.markdown("**🔬 Qiskit Mode Examples (Full Support):**")
+        elif braket_mode == "Qiskit Framework":
+            st.markdown("**🔬 Qiskit Framework Examples (Full Support):**")
             col_ex1, col_ex2 = st.columns(2)
             with col_ex1:
                 if st.button("🧪 H2 VQE", help="Hydrogen molecule VQE"):
@@ -731,7 +656,14 @@ def main():
                     "Top P", 0.0, 1.0, 0.9, 0.1,
                     help="Nucleus sampling: Controls diversity by considering only the top P% of probable tokens. Lower values = more focused, higher values = more diverse."
                 )
-                include_mp_data = st.checkbox("Include Materials Project data", value=mp_configured)
+                # Disable MP data for Braket Framework since it's not used
+                mp_data_disabled = (braket_mode == "Amazon Braket Framework")
+                include_mp_data = st.checkbox(
+                    "Include Materials Project data", 
+                    value=mp_configured and not mp_data_disabled,
+                    disabled=mp_data_disabled,
+                    help="Materials Project data is not used with Amazon Braket Framework" if mp_data_disabled else "Include real material properties and structures in the response"
+                )
             
             # Parameter explanation
             with st.expander("ℹ️ Parameter Guide"):
@@ -754,25 +686,12 @@ def main():
             
             # MCP Server Controls
             st.markdown("**MCP Server Selection:**")
-            col_mcp1, col_mcp2 = st.columns(2)
             
-            with col_mcp1:
-                force_braket_mcp = st.checkbox(
-                    "Force Braket MCP", 
-                    value=False,
-                    help="Always use Braket MCP for quantum circuits"
-                )
-            
-            with col_mcp2:
-                disable_mp_mcp = st.checkbox(
-                    "Disable MP MCP", 
-                    value=False,
-                    help="Skip Materials Project MCP calls"
-                )
-            
-            # Override include_mp_data if user disables MP MCP
-            if disable_mp_mcp:
-                include_mp_data = False
+            force_braket_mcp = st.checkbox(
+                "Use Amazon Braket MCP for generating my response", 
+                value=False,
+                help="Force use of Braket MCP for quantum circuit generation (overrides framework selection)"
+            )
         
         # Submit button
         if st.button("🚀 Generate Response", type="primary", disabled=not query.strip()):
@@ -788,13 +707,10 @@ def main():
                 
                 if force_braket_mcp:
                     st.info("⚛️ Using Braket MCP for quantum circuit generation")
-                    st.warning("⚠️ Note: Braket MCP only supports simple circuits (Bell, GHZ, QFT). For VQE/complex circuits, disable Force Braket MCP.")
                 
                 # Show what code will be generated
-                if braket_mode == "Amazon Braket":
+                if braket_mode == "Amazon Braket Framework":
                     st.info("📝 **Code Output:** Braket SDK code with ASCII circuit diagrams")
-                elif braket_mode == "Both Frameworks":
-                    st.info("📝 **Code Output:** Auto-selected (Qiskit for materials, Braket for algorithms)")
                 else:
                     st.info("📝 **Code Output:** Qiskit/Qiskit-Nature code for quantum simulations")
                 
@@ -878,9 +794,7 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
         st.subheader(f"🤖 Response from {model_name}")
         
         # Show loading spinner with enhanced message for Strands
-        spinner_message = f"Generating response using {model_name}..."
-        if agent_type == "AWS Strands":
-            spinner_message = f"🧠 AWS Strands is analyzing your query with {model_name}... This may take 2-5 minutes for complex workflows."
+        spinner_message = f"🧠 AWS Strands Agents SDK is analyzing your query with {model_name}... This may take 2-5 minutes for complex workflows."
         
         # Create fixed containers for debug output and spinner
         debug_placeholder = None
@@ -932,20 +846,20 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         debug_placeholder.markdown(debug_info)
                 
                     # Force Braket mode for pure algorithm queries
-                    if braket_mode == "Amazon Braket":
+                    if braket_mode == "Amazon Braket Framework":
                         is_braket_query = True
                         force_braket_mcp = True
                 
                     # Handle Braket-specific queries directly (either detected or forced)
-                    if (is_braket_query and braket_mode != "Qiskit Only") or force_braket_mcp:
+                    if (is_braket_query and braket_mode != "Qiskit Framework") or force_braket_mcp:
                         if not show_debug:  # Only show this if debug is off
                             st.info("🔍 Detected Braket-specific query - using Braket MCP integration")
                         
                         if show_debug:
                             debug_placeholder.success("⚛️ **Braket MCP Route Selected** - Processing quantum algorithm query")
                         
-                        # Route to Strands supervisor for Braket handling if using AWS Strands
-                        if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
+                        # Route to Strands supervisor for Braket handling
+                        if st.session_state.strands_supervisor:
                             # Force Strands to handle as Braket query
                             strands_result = st.session_state.strands_supervisor._handle_braket_query(query)
                             
@@ -970,68 +884,45 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                             model_instance._cached_braket_data = original_braket_data
                         
                         else:
-                            # Direct Braket MCP calls for non-Strands agents
+                            # Get Braket MCP data for enhanced diagrams, then let LLM generate code
+                            braket_data = None
+                            
                             if 'ghz' in query.lower():
                                 qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
                                 num_qubits = int(qubit_match.group(1)) if qubit_match else 3
-                                braket_result = braket_integration.create_ghz_circuit(num_qubits)
-                                if "error" not in braket_result:
-                                    response = {
-                                        "text": f"I've created a {num_qubits}-qubit GHZ state circuit using Amazon Braket MCP:\n\n{braket_result.get('description', {}).get('summary', 'GHZ circuit created successfully')}",
-                                        "braket_data": braket_result
-                                    }
-                                else:
-                                    response = {"text": f"Error creating GHZ circuit: {braket_result['error']}"}
-                            
-                            elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
-                                devices_result = braket_integration.list_braket_devices()
-                                if "error" not in devices_result:
-                                    device_list = "\n".join([f"• {d.get('device_name', 'Unknown')}: {d.get('status', 'Unknown')}" 
-                                                            for d in devices_result.get('devices', [])[:5]])
-                                    response = {
-                                        "text": f"Available Amazon Braket devices:\n\n{device_list}\n\nTotal devices: {devices_result.get('total_devices', 0)}",
-                                        "braket_data": devices_result
-                                    }
-                                else:
-                                    response = {"text": f"Error listing devices: {devices_result['error']}"}
-                            
+                                braket_data = braket_integration.create_ghz_circuit(num_qubits)
                             elif 'bell' in query.lower():
-                                bell_result = braket_integration.create_bell_pair_circuit()
-                                if "error" not in bell_result:
-                                    response = {
-                                        "text": f"I've created a Bell pair circuit using Amazon Braket MCP:\n\n{bell_result.get('description', {}).get('summary', 'Bell pair circuit created successfully')}",
-                                        "braket_data": bell_result
-                                    }
-                                else:
-                                    response = {"text": f"Error creating Bell pair circuit: {bell_result['error']}"}
-                            
+                                braket_data = braket_integration.create_bell_pair_circuit()
+                            elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
+                                braket_data = braket_integration.list_braket_devices()
                             else:
-                                # For VQE/complex queries, create a simple demonstration circuit
-                                if 'vqe' in query.lower() or 'circuit' in query.lower():
-                                    # Create a simple 4-qubit circuit for demonstration
-                                    demo_result = braket_integration.create_ghz_circuit(4)
-                                    if "error" not in demo_result:
-                                        material_name = "TiO2" if "tio2" in query.lower() else "the material"
-                                        response = {
-                                            "text": f"I've created a demonstration 4-qubit GHZ circuit for {material_name} VQE using Amazon Braket MCP. This shows the quantum entanglement structure that would be used in a VQE ansatz.",
-                                            "braket_data": demo_result
-                                        }
-                                    else:
-                                        response = {"text": f"Error creating demonstration circuit: {demo_result['error']}"}
-                                else:
-                                    # General Braket status or capabilities
-                                    braket_status = braket_integration.get_braket_status()
-                                    if "error" not in braket_status:
-                                        capabilities = "\n".join([f"• {cap}" for cap in braket_status.get('capabilities', [])])
-                                        response = {
-                                            "text": f"Amazon Braket MCP Status:\n\nAvailable: {braket_status.get('available', False)}\n\nCapabilities:\n{capabilities}",
-                                            "braket_data": braket_status
-                                        }
-                                    else:
-                                        response = {"text": f"Error getting Braket status: {braket_status['error']}"}
+                                # Default to Bell pair for general circuit requests
+                                braket_data = braket_integration.create_bell_pair_circuit()
+                            
+                            # Cache Braket MCP data for the LLM to use
+                            if braket_data and "error" not in braket_data:
+                                model_instance._cached_braket_data = braket_data
+                            
+                            # Let LLM generate full response with Braket SDK code + MCP diagrams
+                            response = model_instance.generate_response(
+                                query=query,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                                top_p=top_p,
+                                include_mp_data=False,  # Braket Framework doesn't use MP data
+                                show_debug=show_debug,
+                                braket_mode=braket_mode
+                            )
+                            
+                            # Add Braket MCP data to response for enhanced diagrams
+                            if braket_data and "error" not in braket_data:
+                                response["braket_data"] = braket_data
+                            
+                            # Clear cached data
+                            model_instance._cached_braket_data = None
                     
-                    # Generate response with agent framework (non-Braket queries)
-                    elif agent_type == "AWS Strands" and st.session_state.strands_supervisor and not force_braket_mcp:
+                    # Generate response with AWS Strands framework (non-Braket queries)
+                    elif st.session_state.strands_supervisor and not force_braket_mcp and braket_mode == "Qiskit Framework":
                         if show_debug:
                             debug_placeholder.info("🧠 **AWS Strands Supervisor** - Analyzing query and dispatching to appropriate workflow...")
                         
