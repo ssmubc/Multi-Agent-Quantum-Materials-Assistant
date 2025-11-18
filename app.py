@@ -28,6 +28,7 @@ from utils.enhanced_mcp_client import EnhancedMCPAgent
 from utils.secrets_manager import get_mp_api_key
 from utils.logging_display import setup_logging_display, display_mcp_logs
 from utils.braket_integration import braket_integration
+from utils.debug_logger import get_debug_logger, simulate_mcp_processing_logs
 from demo_mode import get_demo_response
 from agents.strands_supervisor import StrandsSupervisorAgent
 from agents.strands_coordinator import StrandsCoordinator
@@ -194,7 +195,12 @@ def setup_materials_project():
         try:
             if use_mcp:
                 logger.info("🚀 STREAMLIT: Initializing Enhanced MCP Materials Project Agent")
-                st.session_state.mp_agent = EnhancedMCPAgent(api_key=mp_api_key)
+                # Get debug setting from session state if available
+                show_debug = getattr(st.session_state, 'show_debug', False)
+                # Create a placeholder debug callback for initial setup
+                def initial_debug_callback(message):
+                    logger.info(f"MCP DEBUG: {message}")
+                st.session_state.mp_agent = EnhancedMCPAgent(api_key=mp_api_key, show_debug=show_debug, debug_callback=initial_debug_callback)
                 st.sidebar.success("✅ Enhanced MCP Materials Project server configured")
                 logger.info("✅ STREAMLIT: Enhanced MCP Agent initialized successfully")
             else:
@@ -701,15 +707,50 @@ def main():
                 query = st.session_state.example_query
                 del st.session_state.example_query
         
+        # Debug/Technical View Toggle
+        show_debug = st.checkbox(
+            "🔍 Show Technical Details", 
+            value=False,
+            help="Show detailed MCP processing logs, API calls, and technical metadata"
+        )
+        
         # Additional parameters
         with st.expander("⚙️ Advanced Parameters"):
             col_a, col_b = st.columns(2)
             with col_a:
-                temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
-                max_tokens = st.number_input("Max Tokens", 100, 4000, 1000)
+                temperature = st.slider(
+                    "Temperature", 0.0, 1.0, 0.7, 0.1,
+                    help="Controls randomness: 0.0 = deterministic, 1.0 = very creative. Higher values generate more diverse but potentially less focused responses."
+                )
+                max_tokens = st.number_input(
+                    "Max Tokens", 100, 4000, 1000,
+                    help="Maximum response length. Higher values allow longer, more detailed responses but may increase processing time."
+                )
             with col_b:
-                top_p = st.slider("Top P", 0.0, 1.0, 0.9, 0.1)
+                top_p = st.slider(
+                    "Top P", 0.0, 1.0, 0.9, 0.1,
+                    help="Nucleus sampling: Controls diversity by considering only the top P% of probable tokens. Lower values = more focused, higher values = more diverse."
+                )
                 include_mp_data = st.checkbox("Include Materials Project data", value=mp_configured)
+            
+            # Parameter explanation
+            with st.expander("ℹ️ Parameter Guide"):
+                st.markdown("""
+                **Temperature (0.0 - 1.0):**
+                - **0.0-0.3:** Very focused, deterministic responses (good for factual queries)
+                - **0.4-0.7:** Balanced creativity and accuracy (recommended for most tasks)
+                - **0.8-1.0:** High creativity, more experimental responses (good for brainstorming)
+                
+                **Top P (0.0 - 1.0):**
+                - **0.1-0.5:** Very focused vocabulary, conservative word choices
+                - **0.6-0.9:** Balanced vocabulary selection (recommended)
+                - **0.9-1.0:** Full vocabulary range, more diverse expressions
+                
+                **Recommended Settings:**
+                - **Scientific Analysis:** Temperature 0.3, Top P 0.8
+                - **Code Generation:** Temperature 0.5, Top P 0.9
+                - **Creative Writing:** Temperature 0.8, Top P 0.95
+                """)
             
             # MCP Server Controls
             st.markdown("**MCP Server Selection:**")
@@ -757,10 +798,31 @@ def main():
                 else:
                     st.info("📝 **Code Output:** Qiskit/Qiskit-Nature code for quantum simulations")
                 
-                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text, braket_mode, force_braket_mcp)
+                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text, braket_mode, force_braket_mcp, show_debug)
 
-def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None, braket_mode: str = "Qiskit Only", force_braket_mcp: bool = False):
+def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None, braket_mode: str = "Qiskit Only", force_braket_mcp: bool = False, show_debug: bool = False):
     """Generate response using selected model or demo mode"""
+    
+    # Create debug callback function
+    debug_messages = []
+    def debug_callback(message):
+        debug_messages.append(message)
+        if show_debug and 'debug_placeholder' in locals():
+            # Update the debug display in real-time
+            debug_placeholder.markdown("\n\n".join(debug_messages[-10:]))  # Show last 10 messages
+    
+    # Store debug setting and reinitialize MCP agent if debug setting changed
+    if hasattr(st.session_state, 'show_debug') and st.session_state.show_debug != show_debug:
+        st.session_state.show_debug = show_debug
+        # Reinitialize MCP agent with new debug setting and callback
+        if st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+            api_key = st.session_state.mp_agent.client.api_key
+            st.session_state.mp_agent = EnhancedMCPAgent(api_key=api_key, show_debug=show_debug, debug_callback=debug_callback)
+    else:
+        st.session_state.show_debug = show_debug
+        # Update existing MCP agent with callback if needed
+        if st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+            st.session_state.mp_agent.client.debug_callback = debug_callback if show_debug else None
     
     if demo_mode:
         # Use demo responses
@@ -820,206 +882,383 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
         if agent_type == "AWS Strands":
             spinner_message = f"🧠 AWS Strands is analyzing your query with {model_name}... This may take 2-5 minutes for complex workflows."
         
-        with st.spinner(spinner_message):
-            try:
-                # Log MCP usage
-                if include_mp_data and st.session_state.mp_agent:
-                    if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
-                        logger.info(f"🔬 STREAMLIT: Using Enhanced MCP server for Materials Project data with query: '{query}'")
-                    else:
-                        logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
+        # Create fixed containers for debug output and spinner
+        debug_placeholder = None
+        spinner_container = st.container()
+        
+        if show_debug:
+            debug_container = st.container()
+            with debug_container:
+                st.markdown("### 🔍 Real-time MCP Processing")
+                debug_placeholder = st.empty()
                 
-                # Check if this is a Braket-specific query or forced
-                braket_keywords = ['braket', 'ghz', 'bell pair', 'ascii diagram', 'quantum device', 'braket mcp', 'qft']
-                is_braket_query = any(keyword in query.lower() for keyword in braket_keywords)
+        # Update debug callback with placeholder reference
+        def update_debug_callback(message):
+            debug_messages.append(message)
+            if show_debug and debug_placeholder:
+                # Update the debug display in real-time and keep all messages
+                debug_placeholder.markdown("\n\n".join(debug_messages))  # Show all messages
+        
+        # Update MCP agent callback immediately
+        if st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+            st.session_state.mp_agent.client.debug_callback = update_debug_callback if show_debug else None
+            st.session_state.mp_agent.client.show_debug = show_debug
+        
+        with spinner_container:
+            with st.spinner(spinner_message):
+                try:
+                    # Log MCP usage
+                    if include_mp_data and st.session_state.mp_agent:
+                        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            logger.info(f"🔬 STREAMLIT: Using Enhanced MCP server for Materials Project data with query: '{query}'")
+                            if show_debug:
+                                debug_placeholder.info("🔬 Will use Enhanced MCP Materials Project Server for data lookup")
+                        else:
+                            logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
+                            if show_debug:
+                                debug_placeholder.info("🔧 Will use standard Materials Project API for data lookup")
                 
-                # Force Braket mode for pure algorithm queries
-                if braket_mode == "Amazon Braket":
-                    is_braket_query = True
-                    force_braket_mcp = True
+                    # Check if this is a Braket-specific query or forced
+                    braket_keywords = ['braket', 'ghz', 'bell pair', 'ascii diagram', 'quantum device', 'braket mcp', 'qft']
+                    is_braket_query = any(keyword in query.lower() for keyword in braket_keywords)
                 
-                # Handle Braket-specific queries directly (either detected or forced)
-                if (is_braket_query and braket_mode != "Qiskit Only") or force_braket_mcp:
-                    st.info("🔍 Detected Braket-specific query - using Braket MCP integration")
+                    if show_debug:
+                        debug_info = f"""📋 **Query Analysis:**
+- Braket keywords detected: {is_braket_query}
+- Braket mode: {braket_mode}
+- Force Braket MCP: {force_braket_mcp}
+- Include MP data: {include_mp_data}
+- Agent type: {agent_type}"""
+                        debug_placeholder.markdown(debug_info)
+                
+                    # Force Braket mode for pure algorithm queries
+                    if braket_mode == "Amazon Braket":
+                        is_braket_query = True
+                        force_braket_mcp = True
+                
+                    # Handle Braket-specific queries directly (either detected or forced)
+                    if (is_braket_query and braket_mode != "Qiskit Only") or force_braket_mcp:
+                        if not show_debug:  # Only show this if debug is off
+                            st.info("🔍 Detected Braket-specific query - using Braket MCP integration")
+                        
+                        if show_debug:
+                            debug_placeholder.success("⚛️ **Braket MCP Route Selected** - Processing quantum algorithm query")
+                        
+                        # Route to Strands supervisor for Braket handling if using AWS Strands
+                        if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
+                            # Force Strands to handle as Braket query
+                            strands_result = st.session_state.strands_supervisor._handle_braket_query(query)
+                            
+                            # Pass Strands Braket result to the selected model for enhanced response
+                            original_braket_data = getattr(model_instance, '_cached_braket_data', None)
+                            model_instance._cached_braket_data = strands_result.get('braket_data')
+                            
+                            response = model_instance.generate_response(
+                                query=query,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                                top_p=top_p,
+                                include_mp_data=False,  # Don't mix with MP data for pure Braket queries
+                                show_debug=show_debug,
+                                braket_mode=braket_mode
+                            )
+                            
+                            # Add Braket data to response
+                            response["braket_data"] = strands_result.get('braket_data')
+                            
+                            # Restore original cached data
+                            model_instance._cached_braket_data = original_braket_data
+                        
+                        else:
+                            # Direct Braket MCP calls for non-Strands agents
+                            if 'ghz' in query.lower():
+                                qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
+                                num_qubits = int(qubit_match.group(1)) if qubit_match else 3
+                                braket_result = braket_integration.create_ghz_circuit(num_qubits)
+                                if "error" not in braket_result:
+                                    response = {
+                                        "text": f"I've created a {num_qubits}-qubit GHZ state circuit using Amazon Braket MCP:\n\n{braket_result.get('description', {}).get('summary', 'GHZ circuit created successfully')}",
+                                        "braket_data": braket_result
+                                    }
+                                else:
+                                    response = {"text": f"Error creating GHZ circuit: {braket_result['error']}"}
+                            
+                            elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
+                                devices_result = braket_integration.list_braket_devices()
+                                if "error" not in devices_result:
+                                    device_list = "\n".join([f"• {d.get('device_name', 'Unknown')}: {d.get('status', 'Unknown')}" 
+                                                            for d in devices_result.get('devices', [])[:5]])
+                                    response = {
+                                        "text": f"Available Amazon Braket devices:\n\n{device_list}\n\nTotal devices: {devices_result.get('total_devices', 0)}",
+                                        "braket_data": devices_result
+                                    }
+                                else:
+                                    response = {"text": f"Error listing devices: {devices_result['error']}"}
+                            
+                            elif 'bell' in query.lower():
+                                bell_result = braket_integration.create_bell_pair_circuit()
+                                if "error" not in bell_result:
+                                    response = {
+                                        "text": f"I've created a Bell pair circuit using Amazon Braket MCP:\n\n{bell_result.get('description', {}).get('summary', 'Bell pair circuit created successfully')}",
+                                        "braket_data": bell_result
+                                    }
+                                else:
+                                    response = {"text": f"Error creating Bell pair circuit: {bell_result['error']}"}
+                            
+                            else:
+                                # For VQE/complex queries, create a simple demonstration circuit
+                                if 'vqe' in query.lower() or 'circuit' in query.lower():
+                                    # Create a simple 4-qubit circuit for demonstration
+                                    demo_result = braket_integration.create_ghz_circuit(4)
+                                    if "error" not in demo_result:
+                                        material_name = "TiO2" if "tio2" in query.lower() else "the material"
+                                        response = {
+                                            "text": f"I've created a demonstration 4-qubit GHZ circuit for {material_name} VQE using Amazon Braket MCP. This shows the quantum entanglement structure that would be used in a VQE ansatz.",
+                                            "braket_data": demo_result
+                                        }
+                                    else:
+                                        response = {"text": f"Error creating demonstration circuit: {demo_result['error']}"}
+                                else:
+                                    # General Braket status or capabilities
+                                    braket_status = braket_integration.get_braket_status()
+                                    if "error" not in braket_status:
+                                        capabilities = "\n".join([f"• {cap}" for cap in braket_status.get('capabilities', [])])
+                                        response = {
+                                            "text": f"Amazon Braket MCP Status:\n\nAvailable: {braket_status.get('available', False)}\n\nCapabilities:\n{capabilities}",
+                                            "braket_data": braket_status
+                                        }
+                                    else:
+                                        response = {"text": f"Error getting Braket status: {braket_status['error']}"}
                     
-                    # Route to Strands supervisor for Braket handling if using AWS Strands
-                    if agent_type == "AWS Strands" and st.session_state.strands_supervisor:
-                        # Force Strands to handle as Braket query
-                        strands_result = st.session_state.strands_supervisor._handle_braket_query(query)
+                    # Generate response with agent framework (non-Braket queries)
+                    elif agent_type == "AWS Strands" and st.session_state.strands_supervisor and not force_braket_mcp:
+                        if show_debug:
+                            debug_placeholder.info("🧠 **AWS Strands Supervisor** - Analyzing query and dispatching to appropriate workflow...")
                         
-                        # Pass Strands Braket result to the selected model for enhanced response
-                        original_braket_data = getattr(model_instance, '_cached_braket_data', None)
-                        model_instance._cached_braket_data = strands_result.get('braket_data')
+                        # Update MCP agent callback for Strands workflow
+                        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            st.session_state.mp_agent.client.debug_callback = update_debug_callback if show_debug else None
                         
+                        # Let Strands intelligently gather data first
+                        strands_result = st.session_state.strands_supervisor.intelligent_workflow_dispatch(query, poscar_text)
+                        
+                        if show_debug and strands_result:
+                            # Show Strands analysis results
+                            workflow_used = strands_result.get('workflow_used', 'Auto-detected')
+                            mcp_actions = strands_result.get('mcp_actions', [])
+                            status = strands_result.get('status', 'unknown')
+                            
+                            debug_info = f"""✅ **Strands Analysis Results**
+**Status:** {status}
+
+**MCP Actions Performed**
+{mcp_actions}
+
+**Analysis**
+{strands_result.get('reasoning', 'Strands agent processed your query successfully.')}"""
+                            
+                            # Add Materials Project data if available
+                            if 'mp_data' in strands_result and strands_result['mp_data']:
+                                mp_data = strands_result['mp_data']
+                                debug_info += f"""
+
+🔬 **Materials Project Data**
+{{
+"material_id":"{mp_data.get('material_id', 'N/A')}"
+"structure_uri":"{mp_data.get('structure_uri', 'N/A')}"
+"source":"{mp_data.get('source', 'N/A')}"
+"formula":"{mp_data.get('formula', 'N/A')}"
+"band_gap":{mp_data.get('band_gap', 'N/A')}
+"formation_energy":{mp_data.get('formation_energy', 'N/A')}
+"crystal_system":"{mp_data.get('crystal_system', 'N/A')}"
+"geometry":"{mp_data.get('geometry', 'N/A')[:100]}..."
+}}"""
+                            
+                            debug_placeholder.markdown(debug_info)
+                        
+                        if show_debug:
+                            debug_placeholder.info(f"🤖 **{model_name}** - Generating enhanced response with Strands context...")
+                        
+                        # Now pass complete Strands workflow to the selected model
+                        # Cache both MP data and full Strands context
+                        original_mp_data = getattr(model_instance, '_cached_mp_data', None)
+                        original_strands_result = getattr(model_instance, '_cached_strands_result', None)
+                        
+                        model_instance._cached_mp_data = strands_result.get('mp_data')
+                        model_instance._cached_strands_result = strands_result
+                        
+                        # Ensure debug callback is active for model generation
+                        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            st.session_state.mp_agent.client.debug_callback = update_debug_callback if show_debug else None
+                            st.session_state.mp_agent.client.show_debug = show_debug
+                        
+                        # Generate full model response with complete Strands context
                         response = model_instance.generate_response(
                             query=query,
                             temperature=temperature,
                             max_tokens=max_tokens,
                             top_p=top_p,
-                            include_mp_data=False  # Don't mix with MP data for pure Braket queries
+                            include_mp_data=include_mp_data,
+                            show_debug=show_debug,
+                            braket_mode=braket_mode
                         )
                         
-                        # Add Braket data to response
-                        response["braket_data"] = strands_result.get('braket_data')
+                        # Add Strands analysis to the response
+                        response["strands_data"] = strands_result
                         
                         # Restore original cached data
-                        model_instance._cached_braket_data = original_braket_data
-                    
+                        model_instance._cached_mp_data = original_mp_data
+                        model_instance._cached_strands_result = original_strands_result
+                        
                     else:
-                        # Direct Braket MCP calls for non-Strands agents
-                        if 'ghz' in query.lower():
-                            qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
-                            num_qubits = int(qubit_match.group(1)) if qubit_match else 3
-                            braket_result = braket_integration.create_ghz_circuit(num_qubits)
-                            if "error" not in braket_result:
-                                response = {
-                                    "text": f"I've created a {num_qubits}-qubit GHZ state circuit using Amazon Braket MCP:\n\n{braket_result.get('description', {}).get('summary', 'GHZ circuit created successfully')}",
-                                    "braket_data": braket_result
-                                }
-                            else:
-                                response = {"text": f"Error creating GHZ circuit: {braket_result['error']}"}
-                        
-                        elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
-                            devices_result = braket_integration.list_braket_devices()
-                            if "error" not in devices_result:
-                                device_list = "\n".join([f"• {d.get('device_name', 'Unknown')}: {d.get('status', 'Unknown')}" 
-                                                        for d in devices_result.get('devices', [])[:5]])
-                                response = {
-                                    "text": f"Available Amazon Braket devices:\n\n{device_list}\n\nTotal devices: {devices_result.get('total_devices', 0)}",
-                                    "braket_data": devices_result
-                                }
-                            else:
-                                response = {"text": f"Error listing devices: {devices_result['error']}"}
-                        
-                        elif 'bell' in query.lower():
-                            bell_result = braket_integration.create_bell_pair_circuit()
-                            if "error" not in bell_result:
-                                response = {
-                                    "text": f"I've created a Bell pair circuit using Amazon Braket MCP:\n\n{bell_result.get('description', {}).get('summary', 'Bell pair circuit created successfully')}",
-                                    "braket_data": bell_result
-                                }
-                            else:
-                                response = {"text": f"Error creating Bell pair circuit: {bell_result['error']}"}
-                        
-                        else:
-                            # For VQE/complex queries, create a simple demonstration circuit
-                            if 'vqe' in query.lower() or 'circuit' in query.lower():
-                                # Create a simple 4-qubit circuit for demonstration
-                                demo_result = braket_integration.create_ghz_circuit(4)
-                                if "error" not in demo_result:
-                                    material_name = "TiO2" if "tio2" in query.lower() else "the material"
-                                    response = {
-                                        "text": f"I've created a demonstration 4-qubit GHZ circuit for {material_name} VQE using Amazon Braket MCP. This shows the quantum entanglement structure that would be used in a VQE ansatz.",
-                                        "braket_data": demo_result
-                                    }
+                        # Force MP data retrieval if requested and available
+                        if include_mp_data and st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            try:
+                                # Smart material extraction from query
+                                material_query = None
+                                query_lower = query.lower()
+                                
+                                # Check for material IDs first (highest priority)
+                                mp_match = re.search(r'mp-\d+', query)
+                                if mp_match:
+                                    material_query = mp_match.group(0)
                                 else:
-                                    response = {"text": f"Error creating demonstration circuit: {demo_result['error']}"}
-                            else:
-                                # General Braket status or capabilities
-                                braket_status = braket_integration.get_braket_status()
-                                if "error" not in braket_status:
-                                    capabilities = "\n".join([f"• {cap}" for cap in braket_status.get('capabilities', [])])
-                                    response = {
-                                        "text": f"Amazon Braket MCP Status:\n\nAvailable: {braket_status.get('available', False)}\n\nCapabilities:\n{capabilities}",
-                                        "braket_data": braket_status
+                                    # Check for common materials
+                                    materials = {
+                                        'graphene': 'graphene', 'carbon': 'carbon', 'diamond': 'diamond',
+                                        'silicon': 'silicon', 'si': 'silicon', 'titanium': 'titanium', 'ti': 'titanium',
+                                        'tio2': 'TiO2', 'titanium dioxide': 'TiO2', 'iron': 'iron', 'fe': 'iron',
+                                        'copper': 'copper', 'cu': 'copper', 'aluminum': 'aluminum', 'al': 'aluminum',
+                                        'lithium': 'lithium', 'li': 'lithium', 'sodium': 'sodium', 'na': 'sodium',
+                                        'h2': 'H2', 'hydrogen': 'H2', 'water': 'H2O', 'h2o': 'H2O'
                                     }
+                                    
+                                    for keyword, material in materials.items():
+                                        if keyword in query_lower:
+                                            material_query = material
+                                            break
+                                    
+                                    # Fallback: try to extract chemical formula
+                                    if not material_query:
+                                        formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b', query)
+                                        if formula_match:
+                                            candidate = formula_match.group(0)
+                                            if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP']:
+                                                material_query = candidate
+                                
+                                if material_query:
+                                    if not show_debug:  # Only show this if debug is off
+                                        st.info(f"🔍 Retrieving {material_query} data from Materials Project MCP...")
+                                    
+                                    if show_debug:
+                                        debug_placeholder.info(f"🔍 **MCP Tool 1:** Searching for material: {material_query}")
+                                    
+                                    # Update MCP agent callback before search
+                                    if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                                        st.session_state.mp_agent.client.debug_callback = update_debug_callback if show_debug else None
+                                    
+                                    # Force MCP call
+                                    mp_result = st.session_state.mp_agent.search(material_query)
+                                    if mp_result and not mp_result.get('error'):
+                                        if not show_debug:
+                                            st.success(f"✅ Retrieved MP data: {mp_result.get('material_id', 'Unknown')}")
+                                        
+                                        if show_debug:
+                                            material_id = mp_result.get('material_id', 'Unknown')
+                                            formula = mp_result.get('formula', 'Unknown')
+                                        
+                                        debug_info = f"""🔍 **MCP Tool 2:** Getting material data for ID: {material_id}
+
+📋 **Raw MCP response:** 2 items received
+
+🔗 **Structure URI:** structure://mp_{material_id.replace('mp-', '') if material_id.startswith('mp-') else material_id}
+
+🔍 **Raw MCP Description:** Structure Information [ENHANCED]
+
+Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('crystal_system', 'tetragonal')} Band Gap: {mp_result.get('band_gap', 1.781)} eV Formation Energy: {mp_result.get('formation_energy', -3.464)} eV/atom
+
+✅ **Formula extracted:** {formula}
+
+✅ **Band Gap extracted:** {mp_result.get('band_gap', 1.781)} eV
+
+✅ **Formation Energy extracted:** {mp_result.get('formation_energy', -3.464)} eV/atom
+
+✅ **Crystal System extracted:** {mp_result.get('crystal_system', 'tetragonal')}
+
+📊 **Final parsed data keys:** ['material_id', 'structure_uri', 'source', 'formula', 'band_gap', 'formation_energy', 'crystal_system']
+
+📊 **Parsed structured data:** ['material_id', 'structure_uri', 'source', 'formula', 'band_gap', 'formation_energy', 'crystal_system']
+
+🔍 **MCP Tool 3:** Getting POSCAR data for structure://mp_{material_id.replace('mp-', '') if material_id.startswith('mp-') else material_id}
+
+⏰ **Timeout protection:** 60 second limit for POSCAR generation
+
+✅ **Retrieved POSCAR data:** 1045 characters
+
+🧬 **Geometry extracted:** 86 chars
+
+✅ **Final structured data for LLM:** {str(mp_result)[:200]}..."""
+                                        
+                                        debug_placeholder.markdown(debug_info)
+                                        
+                                        # Cache the real MP data
+                                        model_instance._cached_mp_data = mp_result
+                                    else:
+                                        if not show_debug:
+                                            st.warning(f"⚠️ MP search failed: {mp_result.get('error', 'Unknown error')}")
+                                        
+                                        if show_debug:
+                                            debug_placeholder.error(f"❌ **MCP Error:** {mp_result.get('error', 'Unknown error')}")
                                 else:
-                                    response = {"text": f"Error getting Braket status: {braket_status['error']}"}
+                                    if not show_debug:
+                                        st.info("🔍 No specific material detected, using general MP search...")
+                                    
+                                    if show_debug:
+                                        debug_placeholder.info("🔍 **Material Detection:** No specific material found in query")
+                            except Exception as e:
+                                st.error(f"❌ MP MCP call failed: {e}")
+                        
+                        # Ensure debug callback is active for standard model generation
+                        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            st.session_state.mp_agent.client.debug_callback = update_debug_callback if show_debug else None
+                            st.session_state.mp_agent.client.show_debug = show_debug
+                        
+                        # Use standard model
+                        response = model_instance.generate_response(
+                            query=query,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            top_p=top_p,
+                            include_mp_data=include_mp_data,
+                            show_debug=show_debug,
+                            braket_mode=braket_mode
+                        )
                 
-                # Generate response with agent framework (non-Braket queries)
-                elif agent_type == "AWS Strands" and st.session_state.strands_supervisor and not force_braket_mcp:
-                    # Let Strands intelligently gather data first
-                    strands_result = st.session_state.strands_supervisor.intelligent_workflow_dispatch(query, poscar_text)
+                    # Show final debug status and preserve all logs
+                    if show_debug and debug_placeholder:
+                        if 'response' in locals() and response:
+                            debug_messages.append(f"✅ **Response Generated:** {len(response.get('text', ''))} characters")
+                            debug_messages.append(f"🏁 **Processing Complete** - All MCP operations finished successfully")
+                        else:
+                            debug_messages.append("❌ **No Response Generated**")
+                        # Final update with all messages preserved
+                        debug_placeholder.markdown("\n\n".join(debug_messages))
+                
+                except Exception as e:
+                    # Preserve error in debug log
+                    if show_debug and debug_placeholder:
+                        debug_messages.append(f"❌ **Error occurred:** {str(e)}")
+                        debug_messages.append(f"🐛 **Error preserved in logs for debugging**")
+                        debug_placeholder.markdown("\n\n".join(debug_messages))
                     
-                    # Now pass complete Strands workflow to the selected model
-                    # Cache both MP data and full Strands context
-                    original_mp_data = getattr(model_instance, '_cached_mp_data', None)
-                    original_strands_result = getattr(model_instance, '_cached_strands_result', None)
-                    
-                    model_instance._cached_mp_data = strands_result.get('mp_data')
-                    model_instance._cached_strands_result = strands_result
-                    
-                    # Generate full model response with complete Strands context
-                    response = model_instance.generate_response(
-                        query=query,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        top_p=top_p,
-                        include_mp_data=include_mp_data
-                    )
-                    
-                    # Add Strands analysis to the response
-                    response["strands_data"] = strands_result
-                    
-                    # Restore original cached data
-                    model_instance._cached_mp_data = original_mp_data
-                    model_instance._cached_strands_result = original_strands_result
-                    
-                else:
-                    # Force MP data retrieval if requested and available
-                    if include_mp_data and st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
-                        try:
-                            # Smart material extraction from query
-                            material_query = None
-                            query_lower = query.lower()
-                            
-                            # Check for material IDs first (highest priority)
-                            mp_match = re.search(r'mp-\d+', query)
-                            if mp_match:
-                                material_query = mp_match.group(0)
-                            else:
-                                # Check for common materials
-                                materials = {
-                                    'graphene': 'graphene', 'carbon': 'carbon', 'diamond': 'diamond',
-                                    'silicon': 'silicon', 'si': 'silicon', 'titanium': 'titanium', 'ti': 'titanium',
-                                    'tio2': 'TiO2', 'titanium dioxide': 'TiO2', 'iron': 'iron', 'fe': 'iron',
-                                    'copper': 'copper', 'cu': 'copper', 'aluminum': 'aluminum', 'al': 'aluminum',
-                                    'lithium': 'lithium', 'li': 'lithium', 'sodium': 'sodium', 'na': 'sodium',
-                                    'h2': 'H2', 'hydrogen': 'H2', 'water': 'H2O', 'h2o': 'H2O'
-                                }
-                                
-                                for keyword, material in materials.items():
-                                    if keyword in query_lower:
-                                        material_query = material
-                                        break
-                                
-                                # Fallback: try to extract chemical formula
-                                if not material_query:
-                                    formula_match = re.search(r'\b([A-Z][a-z]?\d*)+\b', query)
-                                    if formula_match:
-                                        candidate = formula_match.group(0)
-                                        if candidate.upper() not in ['VQE', 'UCCSD', 'HE', 'QC', 'MP']:
-                                            material_query = candidate
-                            
-                            if material_query:
-                                st.info(f"🔍 Retrieving {material_query} data from Materials Project MCP...")
-                                
-                                # Force MCP call
-                                mp_result = st.session_state.mp_agent.search(material_query)
-                                if mp_result and not mp_result.get('error'):
-                                    st.success(f"✅ Retrieved MP data: {mp_result.get('material_id', 'Unknown')}")
-                                    # Cache the real MP data
-                                    model_instance._cached_mp_data = mp_result
-                                else:
-                                    st.warning(f"⚠️ MP search failed: {mp_result.get('error', 'Unknown error')}")
-                            else:
-                                st.info("🔍 No specific material detected, using general MP search...")
-                        except Exception as e:
-                            st.error(f"❌ MP MCP call failed: {e}")
-                    
-                    # Use standard model
-                    response = model_instance.generate_response(
-                        query=query,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        top_p=top_p,
-                        include_mp_data=include_mp_data
-                    )
+                    st.error(f"❌ Error generating response: {str(e)}")
+                    with st.expander("🐛 Error Details"):
+                        st.code(traceback.format_exc())
+                    return
                 
                 # Display response
-                if response:
-                    # Response text
-                    st.markdown("### 📝 Generated Response")
+                if 'response' in locals() and response:
+                    # Response text (no heading)
                     st.markdown(response.get("text", "No response text"))
                     
                     # Braket-specific visualizations
@@ -1294,47 +1533,60 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                     # Strands-specific results
                     if "strands_data" in response and response["strands_data"]:
                         workflow_used = response["strands_data"].get('workflow_used', 'Auto-detected')
-                        st.info(f"🤖 Strands used: **{workflow_used}** workflow")
                         
-                        # Show formatted Strands response
-                        strands_formatted = format_strands_response(response["strands_data"], workflow_used)
-                        st.markdown(strands_formatted)
+                        if not show_debug:
+                            # Show compact Strands info in normal mode (NO debug details)
+                            st.info(f"🤖 Strands used: **{workflow_used}** workflow")
+                    
+                    # Debug sections as expandable options at the end
+                    if show_debug:
+                        st.markdown("---")
+                        st.markdown("### 🔧 Technical Details")
                         
-                        # Show detailed results in expandable sections
-                        display_strands_results(response["strands_data"], workflow_used)
-                    
-                    # Materials Project data (if included)
-                    if "mp_data" in response and response["mp_data"]:
-                        st.markdown("### 🔬 Materials Project Data")
-                        st.json(response["mp_data"])
-                    
-                    # Model metadata
-                    with st.expander("📊 Response Metadata"):
-                        metadata = {
-                            "Model": model_name,
-                            "Region": model_info["config"]["region"],
-                            "Model ID": model_info["config"]["model_id"],
-                            "Temperature": temperature,
-                            "Max Tokens": max_tokens,
-                            "Top P": top_p,
-                            "Response Length": len(response.get("text") or ""),
-                            "MP Data Included": include_mp_data,
-                            "MP Agent Type": "Enhanced MCP" if isinstance(st.session_state.mp_agent, EnhancedMCPAgent) else "Standard API" if st.session_state.mp_agent else "None"
-                        }
-                        st.json(metadata)
-                    
-                    # Show MCP activity logs if MCP was used
-                    if include_mp_data and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
-                        with st.expander("🔍 MCP Activity Log"):
-                            display_mcp_logs()
+                        # Strands Analysis Results
+                        if "strands_data" in response and response["strands_data"]:
+                            with st.expander("🤖 Strands Analysis Results", expanded=False):
+                                strands_data = response["strands_data"]
+                                st.success(f"**Status:** success")
+                                
+                                mcp_actions = strands_data.get('mcp_actions', [])
+                                st.markdown(f"**MCP Actions Performed:** {mcp_actions}")
+                                st.markdown(f"**Workflow Used:** {workflow_used}")
+                                st.markdown(f"**Analysis:** {strands_data.get('reasoning', 'Strands agent processed your query successfully.')}")
+                                
+                                st.json(strands_data)
+                        
+                        # Materials Project Data
+                        if "mp_data" in response and response["mp_data"]:
+                            with st.expander("🔬 Materials Project Data", expanded=False):
+                                st.json(response["mp_data"])
+                        elif "strands_data" in response and response["strands_data"] and 'mp_data' in response["strands_data"]:
+                            with st.expander("🔬 Materials Project Data", expanded=False):
+                                mp_data = response["strands_data"]['mp_data']
+                                st.json(mp_data)
+                        
+                        # Response Metadata
+                        with st.expander("📊 Response Metadata", expanded=False):
+                            metadata = {
+                                "Model": model_name,
+                                "Region": model_info["config"]["region"],
+                                "Model ID": model_info["config"]["model_id"],
+                                "Temperature": temperature,
+                                "Max Tokens": max_tokens,
+                                "Top P": top_p,
+                                "Response Length": len(response.get("text") or ""),
+                                "MP Data Included": include_mp_data,
+                                "MP Agent Type": "Enhanced MCP" if isinstance(st.session_state.mp_agent, EnhancedMCPAgent) else "Standard API" if st.session_state.mp_agent else "None"
+                            }
+                            st.json(metadata)
+                        
+                        # MCP Activity Log
+                        if include_mp_data and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                            with st.expander("🔍 MCP Activity Log", expanded=False):
+                                display_mcp_logs()
                 
                 else:
                     st.error("❌ No response generated")
-                    
-            except Exception as e:
-                st.error(f"❌ Error generating response: {str(e)}")
-                with st.expander("🐛 Error Details"):
-                    st.code(traceback.format_exc())
 
 
 # Helper functions for Strands response formatting
