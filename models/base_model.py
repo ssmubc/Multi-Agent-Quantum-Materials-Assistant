@@ -176,7 +176,7 @@ class BaseQiskitGenerator(ABC):
         
         return intent
     
-    def generate_base_code(self, formula: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def generate_base_code(self, formula: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]] = None, braket_mode: str = "Qiskit Only") -> Optional[str]:
         """Generate base Qiskit code based on formula and intent - only when code is actually needed"""
         
         # Check if user actually wants code generation
@@ -390,6 +390,109 @@ print(f"Ansatz: {{ansatz.num_parameters}} parameters")
             ent = intent.get("entanglement") or "linear"
             rot = intent.get("rotations") or "ry"
             
+            # Generate Braket SDK code when in Amazon Braket mode
+            if braket_mode == "Amazon Braket":
+                # For VQE/complex queries in Braket mode, create simple demonstration circuits
+                if "bell" in query_lower or "pair" in query_lower:
+                    code = f'''# Bell pair circuit using Amazon Braket SDK
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create Bell pair circuit
+circuit = Circuit()
+
+# Apply Hadamard gate to qubit 0
+circuit.h(0)
+
+# Apply CNOT gate
+circuit.cnot(0, 1)
+
+# Print circuit
+print("Bell Pair Circuit:")
+print(circuit)
+
+# Run on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+
+print(f"\nMeasurement counts: {{result.measurement_counts}}")
+print(f"Bell pair created for {pretty_formula} demonstration")
+'''
+                elif "ghz" in query_lower:
+                    num_qubits = 3  # Default for GHZ
+                    import re
+                    qubit_match = re.search(r'(\d+)\s*qubit', query_lower)
+                    if qubit_match:
+                        num_qubits = int(qubit_match.group(1))
+                    
+                    code = f'''# {num_qubits}-qubit GHZ state using Amazon Braket SDK
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create {num_qubits}-qubit GHZ circuit
+circuit = Circuit()
+
+# Apply Hadamard to first qubit
+circuit.h(0)
+
+# Apply CNOT gates to create GHZ state
+for i in range(1, {num_qubits}):
+    circuit.cnot(0, i)
+
+# Print circuit
+print("{num_qubits}-qubit GHZ Circuit:")
+print(circuit)
+
+# Run on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+
+print(f"\nMeasurement counts: {{result.measurement_counts}}")
+print(f"GHZ state created for {pretty_formula} demonstration")
+'''
+                else:
+                    # For VQE/materials queries, create a simple demonstration circuit
+                    code = f'''# Simple quantum circuit demonstration for {pretty_formula} using Amazon Braket SDK
+# Note: Braket mode focuses on algorithm demonstrations, not full VQE implementations
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create a 4-qubit demonstration circuit
+circuit = Circuit()
+
+# Create entangled state (simplified VQE-like structure)
+circuit.h(0)  # Superposition
+circuit.cnot(0, 1)  # Entanglement
+circuit.cnot(1, 2)  # More entanglement
+circuit.cnot(2, 3)  # Chain entanglement
+
+# Add some rotation gates (parameterized gates would go here in real VQE)
+circuit.ry(0, 0.5)  # Example rotation
+circuit.ry(1, 0.3)
+circuit.ry(2, 0.7)
+circuit.ry(3, 0.2)
+
+# Print circuit
+print(f"Demonstration circuit for {pretty_formula}:")
+print(circuit)
+
+# Run on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+
+print(f"\nMeasurement counts: {{result.measurement_counts}}")
+print(f"\nNote: This is a demonstration circuit for {pretty_formula}.")
+print("For full VQE implementations, use Qiskit mode with Materials Project integration.")
+'''
+                return code
+            
+            # Skip visualization and complex VQE for Braket mode (handled above)
+            if braket_mode == "Amazon Braket":
+                return None  # Already handled above
+            
             # Check if visualization is requested
             wants_visualization = any(term in query_lower for term in ["3d", "visualiz", "plot", "structure", "crystal"])
             
@@ -463,6 +566,76 @@ print("TwoLocal ansatz for {pretty_formula}: parameters =", params, "depth =", d
         
         # Generate proper quantum simulation code
         if wants_code or intent.get("task"):
+            # Generate Braket SDK code for general requests when in Amazon Braket mode
+            if braket_mode == "Amazon Braket":
+                if "bell" in query_lower:
+                    code = f'''# Bell pair circuit using Amazon Braket SDK
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create Bell pair circuit
+circuit = Circuit()
+circuit.h(0)
+circuit.cnot(0, 1)
+
+print("Bell Pair Circuit:")
+print(circuit)
+
+# Execute on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+print(f"Results: {{result.measurement_counts}}")
+'''
+                elif "ghz" in query_lower:
+                    code = f'''# GHZ state using Amazon Braket SDK
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create 3-qubit GHZ circuit
+circuit = Circuit()
+circuit.h(0)
+circuit.cnot(0, 1)
+circuit.cnot(0, 2)
+
+print("GHZ Circuit:")
+print(circuit)
+
+# Execute on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+print(f"Results: {{result.measurement_counts}}")
+'''
+                else:
+                    # General quantum algorithm demonstration
+                    code = f'''# Quantum algorithm demonstration using Amazon Braket SDK
+from braket.circuits import Circuit
+from braket.devices import LocalSimulator
+
+# Create demonstration circuit for {formula}
+circuit = Circuit()
+
+# Build a simple quantum algorithm
+circuit.h(0)  # Superposition
+circuit.cnot(0, 1)  # Entanglement
+circuit.ry(0, 0.5)  # Parameterized rotation
+circuit.ry(1, 0.3)
+
+print(f"Quantum circuit for {formula}:")
+print(circuit)
+
+# Execute on local simulator
+device = LocalSimulator()
+task = device.run(circuit, shots=1000)
+result = task.result()
+
+print(f"\nResults: {{result.measurement_counts}}")
+print(f"\nNote: This demonstrates quantum algorithms using Braket SDK.")
+print(f"For materials science VQE, switch to Qiskit mode.")
+'''
+                return code
+            
             is_poscar = 'poscar' in query_lower
             
             if is_poscar:
@@ -586,7 +759,7 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
         return None
     
     def generate_response(self, query: str, temperature: float = 0.7, max_tokens: int = 1000, 
-                         top_p: float = 0.9, include_mp_data: bool = True) -> Dict[str, Any]:
+                         top_p: float = 0.9, include_mp_data: bool = True, show_debug: bool = False, braket_mode: str = "Qiskit Only") -> Dict[str, Any]:
         """Generate a complete response including code and explanation"""
         try:
             # Detect intent and extract formula
@@ -725,11 +898,11 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 logger.warning(f"⚠️ BASE MODEL: Converting list mp_data to dict for code generation")
                 mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data), "error": "timeout_fallback"}
             
-            # Generate base code only if needed
-            base_code = self.generate_base_code(formula, intent, mp_data)
+            # Generate base code with braket_mode awareness
+            base_code = self.generate_base_code(formula, intent, mp_data, braket_mode)
             
             # Create enhanced prompt for LLM
-            prompt = self._create_enhanced_prompt(query, base_code, intent, mp_data)
+            prompt = self._create_enhanced_prompt(query, base_code, intent, mp_data, show_debug, braket_mode)
             
             # Call LLM
             llm_response = self._call_llm(
@@ -773,11 +946,34 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 "formula": None
             }
     
-    def _create_enhanced_prompt(self, query: str, base_code: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]]) -> str:
+    def _create_enhanced_prompt(self, query: str, base_code: str, intent: Dict[str, Any], mp_data: Optional[Dict[str, Any]], show_debug: bool = False, braket_mode: str = "Qiskit Only") -> str:
         """Create an enhanced prompt for the LLM"""
         
-        # Core system prompt for all models
-        system_header = """You are an expert quantum-materials research assistant. Answer the user's question directly and provide relevant information based on their specific request.
+        # Core system prompt - varies based on braket_mode
+        if braket_mode == "Amazon Braket":
+            system_header = """You are an expert quantum computing assistant specializing in Amazon Braket SDK. Answer the user's question directly and provide relevant information based on their specific request.
+
+IMPORTANT BRAKET MODE REQUIREMENTS:
+- ALWAYS use Amazon Braket SDK (braket.circuits) for quantum circuit code
+- NEVER use Qiskit code when in Braket mode
+- Use braket.devices.LocalSimulator for local execution
+- Generate Braket-compatible circuit syntax
+- Focus on simple quantum algorithms (Bell states, GHZ, QFT)
+- Materials science queries should use simple demonstration circuits
+
+When generating code:
+- Use only Amazon Braket SDK: from braket.circuits import Circuit
+- Use braket.devices.LocalSimulator for simulation
+- Include circuit.draw() for ASCII visualization
+- Show proper Braket task execution syntax
+- Mention this is Braket SDK code, not Qiskit
+
+LIMITATIONS in Braket mode:
+- No complex VQE implementations (use simple demo circuits)
+- No Materials Project integration for quantum simulations
+- Focus on algorithm demonstrations rather than materials science"""
+        else:
+            system_header = """You are an expert quantum-materials research assistant. Answer the user's question directly and provide relevant information based on their specific request.
 
 IMPORTANT MCP INTEGRATION REQUIREMENTS:
 - ALWAYS acknowledge when Materials Project MCP data is provided
@@ -798,11 +994,16 @@ When showing materials data:
 - Always echo the material IDs, composition, and key properties you're using
 - Explicitly state "Using Materials Project data from MCP server" when applicable"""
         
+        # Adjust base code description based on mode
+        code_description = "base Braket SDK code" if braket_mode == "Amazon Braket" else "base Qiskit code"
+        
         prompt = f"""{system_header}
 
 User Query: {query}
 
-I've generated some base Qiskit code for this query:
+Framework Mode: {braket_mode}
+
+I've generated some {code_description} for this query:
 
 ```python
 {base_code}
@@ -819,7 +1020,9 @@ Detected Intent: {json.dumps(intent, indent=2)}
             band_gap = mp_data.get('band_gap', 'N/A')
             formation_energy = mp_data.get('formation_energy', 'N/A')
             
-            prompt += f"""MATERIALS PROJECT MCP DATA RETRIEVED:
+            if show_debug:
+                # Full debug information
+                prompt += f"""MATERIALS PROJECT MCP DATA RETRIEVED:
 Material ID: {material_id}
 Formula: {formula}
 Band Gap: {band_gap} eV
@@ -835,6 +1038,15 @@ CRITICAL INSTRUCTIONS:
 3. Do NOT use generic or idealized coordinates
 4. Reference the specific material ID in your response
 5. Mention the MCP server was used for data retrieval
+
+"""
+            else:
+                # Clean mode - minimal MP data context
+                prompt += f"""Materials Project data available for {material_id} ({formula}).
+Band Gap: {band_gap} eV, Formation Energy: {formation_energy} eV/atom
+Geometry coordinates: {mp_geometry}
+
+Use this data in your response and mention it came from Materials Project.
 
 """
         
@@ -862,7 +1074,9 @@ CRITICAL INSTRUCTIONS:
                         elif isinstance(code_obj, str):
                             quantum_code = code_obj
             
-            prompt += f"""\n\nIMPORTANT - Complete Strands Analysis Context:
+            if show_debug:
+                # Full debug Strands context
+                prompt += f"""\n\nIMPORTANT - Complete Strands Analysis Context:
 AWS Strands agents have executed a comprehensive workflow for your query. You MUST incorporate ALL this information in your response.
 
 === MCP TOOLS EXECUTED ===
@@ -873,10 +1087,10 @@ AWS Strands agents have executed a comprehensive workflow for your query. You MU
 
 === SPECIAL OPERATIONS PERFORMED ===
 """
-            
-            # Add quantum code if generated by Strands
-            if quantum_code and isinstance(quantum_code, str) and len(quantum_code) > 1000:
-                prompt += f"""\n=== STRANDS-GENERATED QUANTUM CODE ===
+                
+                # Add quantum code if generated by Strands
+                if quantum_code and isinstance(quantum_code, str) and len(quantum_code) > 1000:
+                    prompt += f"""\n=== STRANDS-GENERATED QUANTUM CODE ===
 Strands has generated a comprehensive VQE implementation. You MUST use this code in your response:
 
 {quantum_code[:2000]}...
@@ -884,40 +1098,52 @@ Strands has generated a comprehensive VQE implementation. You MUST use this code
 This is production-ready quantum simulation code generated by AWS Strands. Include it in your response and explain its key features.
 
 """
-            
-            # Add moire-specific context
-            if 'moire_homobilayer' in mcp_actions and moire_params:
-                prompt += f"""MOIRE BILAYER GENERATED:
+                
+                # Add moire-specific context
+                if 'moire_homobilayer' in mcp_actions and moire_params:
+                    prompt += f"""MOIRE BILAYER GENERATED:
 - Structure URI: structure://55f0902b (successfully created)
 - Twist Angle: {moire_params.get('twist_angle', 'N/A')}°
 - Interlayer Spacing: {moire_params.get('interlayer_spacing', 'N/A')} Å
 - Status: Ready for quantum simulations
 
 """
-            
-            # Add supercell context if applicable
-            if 'build_supercell' in mcp_actions:
-                prompt += "SUPERCELL STRUCTURE GENERATED: Ready for extended system analysis\n\n"
-            
-            # Add visualization context if applicable
-            if 'plot_structure' in mcp_actions:
-                prompt += "3D STRUCTURE VISUALIZATION: Generated and available for display\n\n"
-            
-            mp_geometry = mp_data_from_strands.get('geometry', '')
-            if mp_geometry:
-                prompt += f"""CRITICAL - USE EXACT COORDINATES:
+                
+                # Add supercell context if applicable
+                if 'build_supercell' in mcp_actions:
+                    prompt += "SUPERCELL STRUCTURE GENERATED: Ready for extended system analysis\n\n"
+                
+                # Add visualization context if applicable
+                if 'plot_structure' in mcp_actions:
+                    prompt += "3D STRUCTURE VISUALIZATION: Generated and available for display\n\n"
+                
+                mp_geometry = mp_data_from_strands.get('geometry', '')
+                if mp_geometry:
+                    prompt += f"""CRITICAL - USE EXACT COORDINATES:
 {mp_geometry}
 Do NOT use generic coordinates. These are real Materials Project values.
 
 """
-            
-            prompt += """Your response must acknowledge and explain ALL the MCP operations performed above. Reference the specific structure URIs, parameters, and results generated by the Strands workflow.
+                
+                prompt += """Your response must acknowledge and explain ALL the MCP operations performed above. Reference the specific structure URIs, parameters, and results generated by the Strands workflow.
 
 If Strands generated quantum code above, you MUST include it in your response and explain its features. Do not generate your own code when Strands has already provided a comprehensive implementation.
 
 """
+            else:
+                # Clean mode - minimal Strands context
+                material_id = mp_data_from_strands.get('material_id', 'Unknown')
+                formula = mp_data_from_strands.get('formula', 'Unknown')
+                
+                prompt += f"""\n\nStrands workflow completed for {material_id} ({formula}).
+MCP operations: {len(mcp_actions)} tools used.
+
+Provide a clean scientific response using this data without showing technical processing details.
+
+"""
         
-        prompt += """Please respond directly to the user's question. If they asked to see available options, show all materials found. If they want code generation, provide complete runnable code with explanations.
+        if show_debug:
+            prompt += """Please respond directly to the user's question. If they asked to see available options, show all materials found. If they want code generation, provide complete runnable code with explanations.
 
 Provide a comprehensive response with:
 1. Scientific explanation of the concepts
@@ -928,6 +1154,16 @@ Provide a comprehensive response with:
 IMPORTANT: If MCP operations were performed above, reference them in your response. Use exact coordinates and structure URIs provided.
 
 Keep your response focused and match what the user specifically requested."""
+        else:
+            prompt += """Please provide a clean, professional response to the user's question.
+
+Focus on:
+1. Clear scientific explanation
+2. Practical quantum computing implementation
+3. Working code with real Materials Project data
+4. Key insights and applications
+
+Do NOT include technical processing details, MCP tool logs, or debugging information in your response. Keep it clean and user-friendly."""
         
         return prompt
     
