@@ -30,19 +30,45 @@ class EnhancedMCPClient:
             import shutil
             uv_path = shutil.which("uv") or "uv"
             
-            # Use direct Python execution - bypass uv
+            # Start MCP server with proper error handling
             python_exe = env.get('MCP_PYTHON_PATH', 'python')
-            self.server_process = subprocess.Popen([
-                python_exe, "-c", 
-                "import sys; sys.path.insert(0, '.'); from enhanced_mcp_materials.local_server import main; main()"
-            ],
-            cwd=".",
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-            )
+            
+            try:
+                # Ensure we're in the right directory
+                current_dir = os.getcwd()
+                logger.info(f"🚀 MCP: Starting server from {current_dir}")
+                
+                self.server_process = subprocess.Popen([
+                    python_exe, "-m", "enhanced_mcp_materials.server"
+                ],
+                cwd=current_dir,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=0  # Unbuffered for real-time communication
+                )
+                logger.info(f"🚀 MCP: Started server process PID {self.server_process.pid}")
+                
+                # Give server a moment to start
+                import time
+                time.sleep(1)
+                
+                # Check if process is still alive
+                if self.server_process.poll() is not None:
+                    # Process died immediately, check stderr
+                    stderr_output = self.server_process.stderr.read()
+                    logger.error(f"❌ MCP: Server died immediately: {stderr_output}")
+                    self.server_process = None
+                    return False
+                    
+                logger.info("🚀 MCP: Server process started successfully")
+                
+            except Exception as e:
+                logger.error(f"❌ MCP: Server failed to start: {e}")
+                self.server_process = None
+                return False
             
             # Initialize MCP session
             if self._initialize_mcp_session():
@@ -193,6 +219,20 @@ class EnhancedMCPClient:
             
             if response_str:
                 logger.info(f"📥 MCP: Received response: {response_str.strip()[:200]}...")
+                
+                # Skip non-JSON lines (like dispatcher messages)
+                if not response_str.strip().startswith('{'):
+                    logger.warning(f"📥 MCP: Skipping non-JSON response: {response_str.strip()}")
+                    # Try to read another line
+                    try:
+                        response_str = self.server_process.stdout.readline()
+                        if not response_str or not response_str.strip().startswith('{'):
+                            logger.error("📥 MCP: No valid JSON response found")
+                            return None
+                    except:
+                        logger.error("📥 MCP: Failed to read additional response")
+                        return None
+                
                 try:
                     response = json.loads(response_str)
                     if "error" in response:
@@ -234,6 +274,13 @@ class EnhancedMCPClient:
         if self.show_debug and self.debug_callback:
             self.debug_callback(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
         
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return []
+        
         result = self.call_tool("search_materials_by_formula", {
             "chemical_formula": formula
         })
@@ -263,16 +310,27 @@ class EnhancedMCPClient:
                 self.debug_callback(f"📋 First result preview: {materials[0][:200]}..." if materials else "No results")
             logger.info(f"✅ MCP: Found {len(materials)} materials for {formula}")
             return materials
+        
+        # No results found
         if self.show_debug and self.debug_callback:
             self.debug_callback(f"❌ No materials found for {formula}")
         logger.warning(f"❌ MCP: No materials found for {formula}")
         return []
+    
+
     
     def get_material_by_id(self, material_id: str, search_results: List[str] = None) -> Optional[Dict[str, Any]]:
         """Get material by ID with structured data for base model"""
         logger.info(f"🔍 MCP: Getting material data for ID: {material_id}")
         if self.show_debug and self.debug_callback:
             self.debug_callback(f"🔍 **MCP Tool 2**: Getting material data for ID: {material_id}")
+        
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return None
         
         result = self.call_tool("select_material_by_id", {
             "material_id": material_id
@@ -301,10 +359,14 @@ class EnhancedMCPClient:
                 self.debug_callback(f"✅ **Final structured data for LLM**: {data}")
             logger.info(f"✅ MCP: Retrieved structured material data for {material_id}")
             return data
+        
+        # Material not found
         if self.show_debug and self.debug_callback:
             self.debug_callback(f"❌ Material {material_id} not found")
         logger.warning(f"❌ MCP: Material {material_id} not found")
         return None
+    
+
     
     def _parse_material_description(self, description: str, material_id: str, structure_uri: str, search_results: List[str] = None) -> Dict[str, Any]:
         """Parse material description into structured data"""
@@ -483,6 +545,13 @@ class EnhancedMCPClient:
             timeout_val = 60 if format.lower() == "poscar" else 20
             self.debug_callback(f"⏰ **Timeout protection**: {timeout_val} second limit for {format.upper()} generation")
         
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return None
+        
         result = self.call_tool("get_structure_data", {
             "structure_uri": structure_uri,
             "format": format
@@ -499,10 +568,14 @@ class EnhancedMCPClient:
             lines = data.split('\n')[:5]
             logger.info(f"📋 MCP: First 5 lines of {format.upper()}: {lines}")
             return data
+        
+        # Failed to get structure data
         if self.show_debug and self.debug_callback:
             timeout_val = 60 if format.lower() == "poscar" else 20
             self.debug_callback(f"❌ Failed to get {format.upper()} data (timeout after {timeout_val}s or error)")
         return None
+    
+
     
     # Additional MCP server tools
 
