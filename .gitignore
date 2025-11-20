@@ -109,7 +109,6 @@ run_app.bat
 .ebextensions_backup/
 *.zip
 BRAKET_SETUP.md
-BraketMCP/
 DEPLOYMENT_*.md
 DOCKER_BUILD_FIX.md
 aws_security_recommendations.md
