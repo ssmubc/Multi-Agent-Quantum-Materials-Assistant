@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 class EnhancedMCPClient:
     """Enhanced MCP client for Materials Project server with advanced features"""
     
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, show_debug: bool = False, debug_callback=None):
         self.api_key = api_key
         self.server_process = None
+        self.show_debug = show_debug
+        self.debug_callback = debug_callback
         
     def start_server(self) -> bool:
         """Start the enhanced MCP server"""
@@ -28,18 +30,45 @@ class EnhancedMCPClient:
             import shutil
             uv_path = shutil.which("uv") or "uv"
             
-            self.server_process = subprocess.Popen([
-                uv_path,
-                "run", 
-                "enhanced-mcp-materials"
-            ],
-            cwd="enhanced_mcp_materials",
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-            )
+            # Start MCP server with proper error handling
+            python_exe = env.get('MCP_PYTHON_PATH', 'python')
+            
+            try:
+                # Ensure we're in the right directory
+                current_dir = os.getcwd()
+                logger.info(f"🚀 MCP: Starting server from {current_dir}")
+                
+                self.server_process = subprocess.Popen([
+                    python_exe, "-m", "enhanced_mcp_materials.server"
+                ],
+                cwd=current_dir,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=0  # Unbuffered for real-time communication
+                )
+                logger.info(f"🚀 MCP: Started server process PID {self.server_process.pid}")
+                
+                # Give server a moment to start
+                import time
+                time.sleep(1)
+                
+                # Check if process is still alive
+                if self.server_process.poll() is not None:
+                    # Process died immediately, check stderr
+                    stderr_output = self.server_process.stderr.read()
+                    logger.error(f"❌ MCP: Server died immediately: {stderr_output}")
+                    self.server_process = None
+                    return False
+                    
+                logger.info("🚀 MCP: Server process started successfully")
+                
+            except Exception as e:
+                logger.error(f"❌ MCP: Server failed to start: {e}")
+                self.server_process = None
+                return False
             
             # Initialize MCP session
             if self._initialize_mcp_session():
@@ -127,14 +156,58 @@ class EnhancedMCPClient:
             # Read response with timeout
             import select
             import sys
+            import time
+            import threading
             
             # Check if data is available to read (with timeout)
             if sys.platform == 'win32':
-                # Windows doesn't support select on pipes, so just try to read
-                try:
-                    response_str = self.server_process.stdout.readline()
-                except Exception as read_error:
-                    logger.error(f"📥 MCP: Failed to read response: {read_error}")
+                # Windows timeout mechanism using threading
+                response_str = None
+                exception_occurred = None
+                
+                def read_with_timeout():
+                    nonlocal response_str, exception_occurred
+                    try:
+                        # Check if process is still alive first
+                        if self.server_process.poll() is not None:
+                            logger.error(f"💀 MCP: Server process died with return code: {self.server_process.returncode}")
+                            return
+                        
+                        response_str = self.server_process.stdout.readline()
+                    except Exception as e:
+                        exception_occurred = e
+                
+                # Start reading in separate thread
+                read_thread = threading.Thread(target=read_with_timeout)
+                read_thread.daemon = True
+                read_thread.start()
+                
+                # Wait for response with timeout
+                timeout_seconds = 60 if tool_name in ["moire_homobilayer", "build_supercell", "get_structure_data"] else 20  # 60s for complex ops
+                read_thread.join(timeout=timeout_seconds)
+                
+                if read_thread.is_alive():
+                    logger.error(f"⏰ MCP: Timeout after {timeout_seconds}s waiting for {tool_name} response")
+                    # Kill the server process to prevent hanging
+                    try:
+                        self.server_process.terminate()
+                        self.server_process.wait(timeout=5)  # Wait for clean shutdown
+                        logger.info("💀 MCP: Terminated hanging server process")
+                    except:
+                        try:
+                            self.server_process.kill()  # Force kill if terminate fails
+                            logger.info("💀 MCP: Force killed hanging server process")
+                        except:
+                            pass
+                    self.server_process = None
+                    return None
+                
+                if exception_occurred:
+                    logger.error(f"📥 MCP: Failed to read response: {exception_occurred}")
+                    return None
+                
+                if not response_str:
+                    logger.error("📥 MCP: Empty response from server")
                     return None
             else:
                 # Unix-like systems can use select
@@ -146,6 +219,20 @@ class EnhancedMCPClient:
             
             if response_str:
                 logger.info(f"📥 MCP: Received response: {response_str.strip()[:200]}...")
+                
+                # Skip non-JSON lines (like dispatcher messages)
+                if not response_str.strip().startswith('{'):
+                    logger.warning(f"📥 MCP: Skipping non-JSON response: {response_str.strip()}")
+                    # Try to read another line
+                    try:
+                        response_str = self.server_process.stdout.readline()
+                        if not response_str or not response_str.strip().startswith('{'):
+                            logger.error("📥 MCP: No valid JSON response found")
+                            return None
+                    except:
+                        logger.error("📥 MCP: Failed to read additional response")
+                        return None
+                
                 try:
                     response = json.loads(response_str)
                     if "error" in response:
@@ -183,9 +270,16 @@ class EnhancedMCPClient:
     
     def search_materials(self, formula: str) -> List[str]:
         """Search materials by formula"""
-        import streamlit as st
         logger.info(f"🔍 MCP: Searching materials for formula: {formula}")
-        st.write(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
+        
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return []
         
         result = self.call_tool("search_materials_by_formula", {
             "chemical_formula": formula
@@ -204,25 +298,39 @@ class EnhancedMCPClient:
                 
                 # Check for error messages
                 if "Error searching materials" in text or "invalid fields requested" in text:
-                    st.error(f"❌ **MCP Server Error**: {text[:300]}...")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"❌ **MCP Server Error**: {text[:300]}...")
                     logger.error(f"💥 MCP: Server error - {text[:200]}...")
                     return []
                 
                 materials.append(text)
             
-            st.write(f"✅ **Found {len(materials)} materials for {formula}**")
-            st.write(f"📋 First result preview: {materials[0][:200]}..." if materials else "No results")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Found {len(materials)} materials for {formula}**")
+                self.debug_callback(f"📋 First result preview: {materials[0][:200]}..." if materials else "No results")
             logger.info(f"✅ MCP: Found {len(materials)} materials for {formula}")
             return materials
-        st.write(f"❌ No materials found for {formula}")
+        
+        # No results found
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"❌ No materials found for {formula}")
         logger.warning(f"❌ MCP: No materials found for {formula}")
         return []
     
+
+    
     def get_material_by_id(self, material_id: str, search_results: List[str] = None) -> Optional[Dict[str, Any]]:
         """Get material by ID with structured data for base model"""
-        import streamlit as st
         logger.info(f"🔍 MCP: Getting material data for ID: {material_id}")
-        st.write(f"🔍 **MCP Tool 2**: Getting material data for ID: {material_id}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 2**: Getting material data for ID: {material_id}")
+        
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return None
         
         result = self.call_tool("select_material_by_id", {
             "material_id": material_id
@@ -231,32 +339,42 @@ class EnhancedMCPClient:
         if result and len(result) >= 2:
             description = result[0].get("text", "")
             structure_uri = result[1].get("text", "").replace("structure uri: ", "")
-            st.write(f"📋 Raw MCP response: {len(result)} items received")
-            st.write(f"🔗 Structure URI: {structure_uri}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"📋 Raw MCP response: {len(result)} items received")
+                self.debug_callback(f"🔗 Structure URI: {structure_uri}")
             
             # Parse description to extract structured data
             data = self._parse_material_description(description, material_id, structure_uri, search_results)
-            st.write(f"📊 Parsed structured data: {list(data.keys())}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"📊 Parsed structured data: {list(data.keys())}")
             
             # Get POSCAR geometry if available
             poscar_data = self.get_structure_data(structure_uri, "poscar")
             if poscar_data:
                 data["geometry"] = self._poscar_to_geometry(poscar_data)
-                st.write(f"🧬 Geometry extracted: {len(data['geometry'])} chars")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"🧬 Geometry extracted: {len(data['geometry'])} chars")
             
-            st.write(f"✅ **Final structured data for LLM**: {data}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Final structured data for LLM**: {data}")
             logger.info(f"✅ MCP: Retrieved structured material data for {material_id}")
             return data
-        st.write(f"❌ Material {material_id} not found")
+        
+        # Material not found
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"❌ Material {material_id} not found")
         logger.warning(f"❌ MCP: Material {material_id} not found")
         return None
+    
+
     
     def _parse_material_description(self, description: str, material_id: str, structure_uri: str, search_results: List[str] = None) -> Dict[str, Any]:
         """Parse material description into structured data"""
         import streamlit as st
         
         # Log the raw description for debugging
-        st.write(f"🔍 **Raw MCP Description**: {description[:500]}...")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **Raw MCP Description**: {description[:500]}...")
         logger.info(f"🔍 MCP: Raw description for {material_id}: {description[:200]}...")
         
         data = {
@@ -271,25 +389,34 @@ class EnhancedMCPClient:
             for result in search_results:
                 if material_id in result:
                     search_data = result
-                    st.write(f"🔍 **Found in search results**: {search_data[:200]}...")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"🔍 **Found in search results**: {search_data[:200]}...")
                     break
         
-        # Extract formula (try search results first, then description)
+        # Extract formula (handle both basic and enhanced formats)
         formula = None
         if search_data:
             formula_match = re.search(r"Formula: ([^\n]+)", search_data)
             if formula_match:
                 formula = formula_match.group(1).strip()
         if not formula:
+            # Try basic format first
             formula_match = re.search(r"Formula: ([^\n]+)", description)
             if formula_match:
                 formula = formula_match.group(1).strip()
+            else:
+                # Try enhanced format (Formula:\nTi30 O60)
+                enhanced_match = re.search(r"Formula:\s*\n([^\n]+)", description)
+                if enhanced_match:
+                    formula = enhanced_match.group(1).strip()
         
         if formula:
             data["formula"] = formula
-            st.write(f"✅ **Formula extracted**: {data['formula']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Formula extracted**: {data['formula']}")
         else:
-            st.write("❌ **Formula not found**")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("❌ **Formula not found**")
         
         # Extract band gap (try search results first)
         band_gap = None
@@ -304,10 +431,12 @@ class EnhancedMCPClient:
         
         if band_gap is not None:
             data["band_gap"] = band_gap
-            st.write(f"✅ **Band Gap extracted**: {data['band_gap']} eV")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Band Gap extracted**: {data['band_gap']} eV")
         else:
             data["band_gap"] = 0.0
-            st.write(f"❌ **Band Gap not found**, using default: {data['band_gap']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"❌ **Band Gap not found**, using default: {data['band_gap']}")
         
         # Extract formation energy (try search results first)
         formation_energy = None
@@ -322,28 +451,38 @@ class EnhancedMCPClient:
         
         if formation_energy is not None:
             data["formation_energy"] = formation_energy
-            st.write(f"✅ **Formation Energy extracted**: {data['formation_energy']} eV/atom")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Formation Energy extracted**: {data['formation_energy']} eV/atom")
         else:
             data["formation_energy"] = -3.0
-            st.write(f"❌ **Formation Energy not found**, using default: {data['formation_energy']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"❌ **Formation Energy not found**, using default: {data['formation_energy']}")
         
-        # Extract crystal system (try search results first)
+        # Extract crystal system (handle both basic and enhanced formats)
         crystal_system = None
         if search_data:
             cs_match = re.search(r"Crystal System: ([^\n]+)", search_data)
             if cs_match:
                 crystal_system = cs_match.group(1).strip()
         if not crystal_system:
+            # Try basic format first
             cs_match = re.search(r"Crystal System: ([^\n]+)", description)
             if cs_match:
                 crystal_system = cs_match.group(1).strip()
+            else:
+                # Try enhanced format (within spacegroup section)
+                enhanced_match = re.search(r"Spacegroup:.*?\nCrystal System: ([^\n]+)", description, re.DOTALL)
+                if enhanced_match:
+                    crystal_system = enhanced_match.group(1).strip()
         
         if crystal_system:
             data["crystal_system"] = crystal_system
-            st.write(f"✅ **Crystal System extracted**: {data['crystal_system']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Crystal System extracted**: {data['crystal_system']}")
             logger.info(f"✅ MCP: Crystal system found for {material_id}: {data['crystal_system']}")
         else:
-            st.write("❌ **Crystal System not found in description or search results**")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("❌ **Crystal System not found in description or search results**")
             logger.warning(f"❌ MCP: No crystal system found for {material_id}")
             
             # Try alternative patterns
@@ -356,10 +495,12 @@ class EnhancedMCPClient:
                 alt_match = re.search(pattern, description) or (search_data and re.search(pattern, search_data))
                 if alt_match:
                     data["space_group_info"] = alt_match.group(1).strip()
-                    st.write(f"ℹ️ **Alternative info found**: {pattern.split(':')[0]} = {data['space_group_info']}")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"ℹ️ **Alternative info found**: {pattern.split(':')[0]} = {data['space_group_info']}")
                     break
         
-        st.write(f"📊 **Final parsed data keys**: {list(data.keys())}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"📊 **Final parsed data keys**: {list(data.keys())}")
         return data
     
     def _poscar_to_geometry(self, poscar_str: str) -> str:
@@ -396,11 +537,20 @@ class EnhancedMCPClient:
         except Exception:
             return "Si 0.0 0.0 0.0; Si 1.932 1.932 1.932"
     
-    # Additional MCP server tools
     def get_structure_data(self, structure_uri: str, format: str = "poscar") -> Optional[str]:
-        """Get structure data in POSCAR/CIF format"""
+        """Get structure data in POSCAR/CIF format with timeout protection"""
         import streamlit as st
-        st.write(f"🔍 **MCP Tool 3**: Getting {format.upper()} data for {structure_uri}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 3**: Getting {format.upper()} data for {structure_uri}")
+            timeout_val = 60 if format.lower() == "poscar" else 20
+            self.debug_callback(f"⏰ **Timeout protection**: {timeout_val} second limit for {format.upper()} generation")
+        
+        # Check if server is available
+        if not self.server_process:
+            logger.warning("⚠️ MCP: Server not available")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("⚠️ **MCP Server Unavailable**")
+            return None
         
         result = self.call_tool("get_structure_data", {
             "structure_uri": structure_uri,
@@ -412,18 +562,28 @@ class EnhancedMCPClient:
                 data = item.get("text", "")
             else:
                 data = str(item)
-            st.write(f"✅ **Retrieved {format.upper()} data**: {len(data)} characters")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Retrieved {format.upper()} data**: {len(data)} characters")
             # Log first few lines for debugging
             lines = data.split('\n')[:5]
             logger.info(f"📋 MCP: First 5 lines of {format.upper()}: {lines}")
             return data
-        st.write(f"❌ Failed to get {format.upper()} data")
+        
+        # Failed to get structure data
+        if self.show_debug and self.debug_callback:
+            timeout_val = 60 if format.lower() == "poscar" else 20
+            self.debug_callback(f"❌ Failed to get {format.upper()} data (timeout after {timeout_val}s or error)")
         return None
+    
+
+    
+    # Additional MCP server tools
+
     
     def create_structure_from_poscar(self, poscar_str: str) -> Optional[Dict[str, str]]:
         """Create structure from POSCAR string"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 4**: Creating structure from POSCAR ({len(poscar_str)} chars)")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 4**: Creating structure from POSCAR ({len(poscar_str)} chars)")
         
         result = self.call_tool("create_structure_from_poscar", {
             "poscar_str": poscar_str
@@ -433,9 +593,11 @@ class EnhancedMCPClient:
                 "uri_info": result[0].get("text", "") if isinstance(result[0], dict) else str(result[0]),
                 "description": result[1].get("text", "") if isinstance(result[1], dict) else str(result[1])
             }
-            st.write(f"✅ **Structure created**: {data['uri_info']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Structure created**: {data['uri_info']}")
             return data
-        st.write("❌ Failed to create structure from POSCAR")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to create structure from POSCAR")
         return None
     
     def create_structure_from_cif(self, cif_str: str) -> Optional[Dict[str, str]]:
@@ -452,8 +614,8 @@ class EnhancedMCPClient:
     
     def plot_structure(self, structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Optional[str]:
         """Plot structure and return base64 image"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 5**: Plotting structure {structure_uri}")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 5**: Plotting structure {structure_uri}")
         
         result = self.call_tool("plot_structure", {
             "structure_uri": structure_uri,
@@ -463,15 +625,31 @@ class EnhancedMCPClient:
             for item in result:
                 if item.get("type") == "image":
                     image_data = item.get("data", "")
-                    st.write(f"✅ **Structure plot generated**: {len(image_data)} chars base64")
+                    if self.show_debug and self.debug_callback:
+                        self.debug_callback(f"✅ **Structure plot generated**: {len(image_data)} chars base64")
                     return image_data
-        st.write("❌ Failed to generate structure plot")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to generate structure plot")
         return None
     
     def build_supercell(self, bulk_structure_uri: str, supercell_parameters: Dict[str, Any]) -> Optional[Dict[str, str]]:
-        """Build supercell from bulk structure"""
-        import streamlit as st
-        st.write(f"🔍 **MCP Tool 6**: Building supercell from {bulk_structure_uri}")
+        """Build supercell from bulk structure with retry logic"""
+        if self.show_debug and self.debug_callback:
+            self.debug_callback(f"🔍 **MCP Tool 6**: Building supercell from {bulk_structure_uri}")
+            self.debug_callback(f"🔧 **Parameters**: {supercell_parameters}")
+        
+        # Restart server if it died
+        if not self.server_process or self.server_process.poll() is not None:
+            if self.show_debug and self.debug_callback:
+                self.debug_callback("🔄 **Restarting MCP server** (previous process died)")
+            logger.info("🔄 MCP: Restarting server for supercell operation")
+            if self.start_server():
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback("✅ **Server restarted successfully**")
+            else:
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback("❌ **Failed to restart server**")
+                return None
         
         result = self.call_tool("build_supercell", {
             "bulk_structure_uri": bulk_structure_uri,
@@ -482,9 +660,11 @@ class EnhancedMCPClient:
                 "supercell_uri": result[0].get("text", "") if isinstance(result[0], dict) else str(result[0]),
                 "description": result[1].get("text", "") if isinstance(result[1], dict) else str(result[1])
             }
-            st.write(f"✅ **Supercell built**: {data['supercell_uri']}")
+            if self.show_debug and self.debug_callback:
+                self.debug_callback(f"✅ **Supercell built**: {data['supercell_uri']}")
             return data
-        st.write("❌ Failed to build supercell")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to build supercell")
         return None
     
     def __del__(self):
@@ -495,23 +675,26 @@ class EnhancedMCPClient:
 class EnhancedMCPAgent:
     """Enhanced MCP agent with full Materials Project server capabilities"""
     
-    def __init__(self, api_key: str):
-        self.client = EnhancedMCPClient(api_key)
+    def __init__(self, api_key: str, show_debug: bool = False, debug_callback=None):
+        self.client = EnhancedMCPClient(api_key, show_debug, debug_callback)
         self.client.start_server()
     
     def search(self, query: str) -> Dict[str, Any]:
         """Search for materials - returns structured data for base model"""
         logger.info(f"🚀 MCP AGENT: Starting search for query: '{query}'")
         try:
-            # Handle material ID queries
-            if query.lower().startswith("mp-"):
-                logger.info(f"📋 MCP AGENT: Detected material ID query: {query}")
-                material_data = self.client.get_material_by_id(query)
+            # Handle material ID queries - look for mp- anywhere in query
+            import re
+            mp_match = re.search(r'(mp-\d+)', query.lower())
+            if mp_match:
+                material_id = mp_match.group(1)
+                logger.info(f"📋 MCP AGENT: Detected material ID query: {material_id} from '{query}'")
+                material_data = self.client.get_material_by_id(material_id)
                 if material_data:
-                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {query}")
+                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {material_id}")
                     return material_data  # Already structured by get_material_by_id
-                logger.warning(f"❌ MCP AGENT: Material {query} not found")
-                return {"error": f"Material {query} not found"}
+                logger.warning(f"❌ MCP AGENT: Material {material_id} not found")
+                return {"error": f"Material {material_id} not found"}
             
             # Special handling for common materials to find stable phases
             from utils.material_selector import get_known_stable_phase, select_best_material_match
@@ -608,6 +791,10 @@ class EnhancedMCPAgent:
         """Direct access to formula search"""
         return self.client.search_materials(formula)
     
+    def select_material_by_id(self, material_id: str) -> Optional[Dict[str, Any]]:
+        """Select material by ID - wrapper for get_material_by_id"""
+        return self.client.get_material_by_id(material_id)
+    
     def moire_homobilayer(self, bulk_structure_uri: str, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float) -> Optional[Dict[str, str]]:
         """Generate moire homobilayer structure"""
         import streamlit as st
@@ -626,19 +813,48 @@ class EnhancedMCPAgent:
             first_item = result[0]
             text = first_item.get("text", "") if isinstance(first_item, dict) else str(first_item)
             
-            if "Moire structure is created" in text:
+            # Log diagnostics from 4th item if available
+            if len(result) >= 4:
+                diagnostics_item = result[3]
+                diagnostics_text = diagnostics_item.get("text", "") if isinstance(diagnostics_item, dict) else str(diagnostics_item)
+                if "FULL DIAGNOSTICS:" in diagnostics_text:
+                    # Extract and log the diagnostics
+                    diagnostics = diagnostics_text.replace("FULL DIAGNOSTICS:\n", "")
+                    for line in diagnostics.split("\n"):
+                        if line.strip():
+                            logger.info(f"INFO: 🔧 MOIRE DIAGNOSTICS: {line.strip()}")
+            
+            if "Moire structure created" in text:
                 # Extract URI from success message
                 uri_match = re.search(r"structure://([a-f0-9]+)", text)
                 moire_uri = uri_match.group(0) if uri_match else "structure://unknown"
                 
+                # Store structure data for later display (after response)
+                structure_data = {}
+                if len(result) >= 3:
+                    poscar_item = result[2]
+                    poscar_text = poscar_item.get("text", "") if isinstance(poscar_item, dict) else str(poscar_item)
+                    if "POSCAR DATA:" in poscar_text:
+                        structure_data["poscar"] = poscar_text.replace("POSCAR DATA:\n", "")
+                
+                if len(result) >= 2:
+                    desc_item = result[1]
+                    desc_text = desc_item.get("text", "") if isinstance(desc_item, dict) else str(desc_item)
+                    if "STRUCTURE DESCRIPTION:" in desc_text:
+                        structure_data["description"] = desc_text.replace("STRUCTURE DESCRIPTION:\n", "")
+                
                 data = {
                     "moire_uri": moire_uri,
-                    "description": text
+                    "description": text,
+                    "structure_data": structure_data
                 }
-                st.write(f"✅ **Moire bilayer generated**: {data['moire_uri']}")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"✅ **Moire bilayer generated**: {data['moire_uri']}")
                 return data
             else:
-                st.write(f"❌ **Moire generation error**: {text}")
+                if self.show_debug and self.debug_callback:
+                    self.debug_callback(f"❌ **Moire generation error**: {text}")
                 return None
-        st.write("❌ Failed to generate moire bilayer")
+        if self.show_debug and self.debug_callback:
+            self.debug_callback("❌ Failed to generate moire bilayer")
         return None

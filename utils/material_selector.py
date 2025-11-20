@@ -87,7 +87,7 @@ def get_known_stable_phase(formula: str, mp_client) -> Optional[Dict[str, Any]]:
     # Known stable MP IDs for common materials
     stable_phases = {
         "Si": "mp-149",      # Diamond silicon
-        "C": "mp-66",       # Diamond carbon
+        "C": "mp-48",       # Graphite carbon (better for 2D moire)
         "Ge": "mp-32",      # Diamond germanium
         "GaAs": "mp-2534",  # Zinc blende GaAs
         "TiO2": "mp-2657",  # Rutile TiO2
