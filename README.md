@@ -106,17 +106,34 @@ store_mp_api_key("your_mp_api_key_here")
 
 ### Local Development
 
-1. **Start the Streamlit app:**
+1. **Quick Start (using helper script):**
 ```bash
+# Option 1: Use the local development script
+python run_local.py
+```
+
+2. **Manual Start:**
+```bash
+# Option 2: Start Streamlit directly
 streamlit run app.py
 ```
 
-2. **Configure the application:**
+3. **Local Environment Variables (Optional):**
+   The `run_local.py` script sets these defaults if not already configured:
+   ```bash
+   # Override defaults by setting your own:
+   export AWS_PROFILE=your-aws-profile-name
+   export DEMO_USERNAME=your-username  # For local auth
+   export DEMO_PASSWORD=your-password  # For local auth
+   export MP_API_KEY=your-materials-project-key
+   ```
+
+4. **Configure the application:**
    - Verify AWS credentials are detected (uses AWS SSO/profiles for local dev)
    - Set up Materials Project API key
    - Check model status in sidebar
 
-3. **Test the models:**
+5. **Test the models:**
    - Select a model from the dropdown
    - Enter your quantum/materials science question
    - Adjust parameters if needed

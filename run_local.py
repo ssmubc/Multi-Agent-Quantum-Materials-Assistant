@@ -6,20 +6,21 @@ import os
 import sys
 import subprocess
 
-# Set demo credentials for local testing
-os.environ['DEMO_USERNAME'] = 'demo'
-os.environ['DEMO_PASSWORD'] = 'quantum2025'
-os.environ['AWS_PROFILE'] = 'qmi_streamlit'
+# Set demo credentials for local testing (only if not already set)
+if not os.environ.get('DEMO_USERNAME'):
+    os.environ['DEMO_USERNAME'] = 'demo'
+if not os.environ.get('DEMO_PASSWORD'):
+    os.environ['DEMO_PASSWORD'] = 'quantum2025'
+if not os.environ.get('AWS_PROFILE'):
+    os.environ['AWS_PROFILE'] = 'your-aws-profile-name'
 
 # Set Materials Project API key for local development
 # You need to get a NEW 32-character API key from https://materialsproject.org/api
 # The old 16-character keys don't work with the new mp-api
 if not os.environ.get('MP_API_KEY'):
-    print("\n[WARNING] No MP_API_KEY found!")
-    print("Please get a NEW 32-character API key from: https://materialsproject.org/api")
-    print("Then set it with: set MP_API_KEY=your_32_character_key")
-    print("\nFor now, using a placeholder key (MCP will fail)...")
-    os.environ['MP_API_KEY'] = 'placeholder_key_get_real_32char_key_from_materialsproject_org'
+    # Put your Materials Project API key here:
+    os.environ['MP_API_KEY'] = 'PUT_YOUR_32_CHARACTER_MP_API_KEY_HERE'
+    print("[INFO] Using MP_API_KEY from run_local.py file")
 
 # Fix MCP server Python path for local development
 os.environ['MCP_PYTHON_PATH'] = sys.executable
@@ -27,11 +28,12 @@ os.environ['PYTHONPATH'] = os.getcwd() + os.pathsep + os.path.join(os.getcwd(), 
 
 print("Setting up local environment...")
 print("Demo credentials: demo / quantum2025")
-print(f"MP_API_KEY: {'SET' if len(os.environ.get('MP_API_KEY', '')) == 32 else 'MISSING/INVALID'}")
-if len(os.environ.get('MP_API_KEY', '')) != 32:
-    print("\n[ERROR] MCP will timeout because MP_API_KEY is missing or invalid!")
-    print("Get a 32-character key from: https://materialsproject.org/api")
-    print("Then run: set MP_API_KEY=your_key && python run_local.py\n")
+print("AWS Profile: deploy-quantum")
+mp_key = os.environ.get('MP_API_KEY', '')
+print(f"MP_API_KEY: {'VALID' if len(mp_key) == 32 and mp_key != 'PUT_YOUR_32_CHARACTER_MP_API_KEY_HERE' else 'NEEDS_SETUP'}")
+if len(mp_key) != 32 or mp_key == 'PUT_YOUR_32_CHARACTER_MP_API_KEY_HERE':
+    print("\n[ERROR] Please set your real MP_API_KEY in run_local.py file!")
+    print("Replace 'PUT_YOUR_32_CHARACTER_MP_API_KEY_HERE' with your actual key\n")
 print(f"Python path: {sys.executable}")
 print(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}")
 print(f"MCP Python: {os.environ.get('MCP_PYTHON_PATH', 'Not set')}")
@@ -47,8 +49,7 @@ except Exception as e:
 
 # Set additional local optimizations
 os.environ['MCP_LOCAL_MODE'] = '1'
-os.environ['USE_DUMMY_MP_DATA'] = '1'  # Bypass MP API hanging locally
-print("[INFO] Local development mode enabled with dummy MP data (bypasses API hanging)")
+print("[INFO] Local development mode enabled with real MCP server")
 
 # Run streamlit with smart port selection
 try:
