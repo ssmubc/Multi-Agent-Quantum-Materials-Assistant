@@ -5,13 +5,36 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-from strands import Agent
-from strands_tools import use_aws
+# Mock classes for local testing
+class MockAgent:
+    def __init__(self, model=None, tools=None, system_prompt=None):
+        self.model = model
+        self.tools = tools
+        self.system_prompt = system_prompt
+    
+    def __call__(self, prompt):
+        return type('Response', (), {'text': f"Mock response to: {prompt[:50]}..."})()
+
+# Set defaults
+Agent = MockAgent
+use_aws = None
+STRANDS_AVAILABLE = False
+
+try:
+    from strands_agents import Agent as RealAgent
+    from strands_agents_tools import use_aws as real_use_aws
+    Agent = RealAgent
+    use_aws = real_use_aws
+    STRANDS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Strands not available locally: {e}")
+    STRANDS_AVAILABLE = False
 from .strands_coordinator import StrandsCoordinator
 from .strands_dft_agent import StrandsDFTAgent
 from .strands_structure_agent import StrandsStructureAgent
 from .strands_agentic_loop import StrandsAgenticLoop
 from utils.braket_integration import braket_integration
+from utils.mcp_tools_wrapper import initialize_mcp_wrapper, get_mcp_wrapper
 
 class StrandsSupervisorAgent:
     """AWS Strands-based supervisor for quantum materials analysis"""
@@ -19,14 +42,18 @@ class StrandsSupervisorAgent:
     def __init__(self, mp_agent):
         self.mp_agent = mp_agent
         
+        # Initialize MCP wrapper for easier tool access
+        initialize_mcp_wrapper(mp_agent)
+        
         # Test Strands framework availability
         logger.info("🚀 STRANDS: Initializing Strands supervisor with Claude Sonnet 4.5...")
         
         try:
-            # Create Strands agent with AWS tools
+            # Create Strands agent with AWS tools and MCP integration
             self.agent = Agent(
                 model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                tools=[use_aws]
+                tools=[use_aws],
+                system_prompt="You are a quantum materials analysis agent with access to Materials Project MCP tools through AWS. Always use the available tools to call MCP services when analyzing materials."
             )
             logger.info("✅ STRANDS: Agent created successfully")
             
@@ -65,6 +92,17 @@ class StrandsSupervisorAgent:
         if not formula:
             formula = self._extract_formula_from_query(query)
         
+        # Check if this is a molecular query that should skip MP search
+        if formula is None:
+            logger.info("🧪 STRANDS: Molecular query detected - providing response without Materials Project data")
+            return {
+                "status": "success",
+                "mp_data": None,
+                "mcp_actions": [],
+                "workflow_used": "Simple Query",
+                "reasoning": "Simple molecule query - no Materials Project search needed"
+            }
+        
         logger.info(f"🤖 STRANDS: Processing query for formula='{formula}'")
         
         # Validate formula before proceeding
@@ -72,32 +110,109 @@ class StrandsSupervisorAgent:
             logger.warning("⚠️ STRANDS: No formula detected, using fallback")
             formula = "Si"  # Safe fallback
         
-        # Create context-aware prompt for Strands agent
+        # First try direct MCP call, then let Strands agent enhance if needed
+        mcp_wrapper = get_mcp_wrapper()
+        if mcp_wrapper:
+            logger.info(f"🔧 STRANDS: Using direct MCP wrapper for {formula}")
+            
+            # Determine action based on query
+            query_lower = query.lower()
+            if "moire" in query_lower or "bilayer" in query_lower:
+                # For moire queries, search first then create moire
+                search_result = mcp_wrapper.search_material(formula)
+                if search_result["status"] == "success":
+                    # Extract material ID and create moire
+                    import re
+                    results_text = str(search_result["data"])
+                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                    if material_id_match:
+                        material_id = material_id_match.group(1)
+                        moire_result = mcp_wrapper.create_moire_bilayer(material_id)
+                        return {
+                            "status": "success",
+                            "mp_data": search_result["data"],
+                            "mcp_actions": ["search_materials_by_formula", "moire_homobilayer"],
+                            "mcp_results": {"search": search_result, "moire": moire_result}
+                        }
+            elif "supercell" in query_lower:
+                # For supercell queries
+                search_result = mcp_wrapper.search_material(formula)
+                if search_result["status"] == "success":
+                    import re
+                    results_text = str(search_result["data"])
+                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                    if material_id_match:
+                        material_id = material_id_match.group(1)
+                        supercell_result = mcp_wrapper.create_supercell(material_id)
+                        return {
+                            "status": "success",
+                            "mp_data": search_result["data"],
+                            "mcp_actions": ["search_materials_by_formula", "build_supercell"],
+                            "mcp_results": {"search": search_result, "supercell": supercell_result}
+                        }
+            elif "plot" in query_lower or "visualiz" in query_lower:
+                # For visualization queries
+                search_result = mcp_wrapper.search_material(formula)
+                if search_result["status"] == "success":
+                    import re
+                    results_text = str(search_result["data"])
+                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                    if material_id_match:
+                        material_id = material_id_match.group(1)
+                        viz_result = mcp_wrapper.create_visualization(material_id)
+                        return {
+                            "status": "success",
+                            "mp_data": search_result["data"],
+                            "mcp_actions": ["search_materials_by_formula", "plot_structure"],
+                            "mcp_results": {"search": search_result, "visualization": viz_result}
+                        }
+            else:
+                # Default: just search
+                search_result = mcp_wrapper.search_material(formula)
+                if search_result["status"] == "success":
+                    return {
+                        "status": "success",
+                        "mp_data": search_result["data"],
+                        "mcp_actions": ["search_materials_by_formula"],
+                        "mcp_results": {"search": search_result}
+                    }
+        
+        # Fallback: Create context-aware prompt for Strands agent
         prompt = f"""
-        You are a quantum materials analysis agent. Process this query: "{query}"
+        You are a quantum materials analysis agent. Analyze this query: "{query}"
         Material formula: {formula}
         
-        Available MCP tools via materials project:
-        - search: Find materials by formula
-        - search_materials_by_formula: Search multiple materials
-        - plot_structure: Visualize 3D structure
-        - build_supercell: Create supercells
-        - moire_homobilayer: Generate moire patterns
-        
-        Determine the appropriate MCP action and return JSON with:
-        {{"action": "tool_name", "params": {{}}, "reasoning": "why this tool"}}
+        Provide analysis and recommendations for this material and query.
         """
         
         try:
-            # Let Strands agent decide the action
+            # Let Strands agent call MCP tools directly through AWS tools
             response = self.agent(prompt)
             
-            # Parse agent response to extract MCP action
+            # Get response text
             response_text = getattr(response, 'text', str(response))
-            action_data = self._parse_agent_response(response_text)
+            logger.info(f"🤖 STRANDS: Agent response: {response_text[:200]}...")
             
-            # Execute the determined MCP action
-            return self._execute_mcp_action(action_data, formula, query)
+            # Check if agent actually called tools
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                logger.info(f"✅ STRANDS: Agent made {len(response.tool_calls)} tool calls")
+                # Return the tool call results
+                return {
+                    "status": "success",
+                    "mp_data": response_text,
+                    "mcp_actions": ["strands_analysis"],
+                    "tool_results": response_text,
+                    "workflow_used": "Strands Agent with Tools"
+                }
+            else:
+                logger.info("📝 STRANDS: Agent provided analysis without tool calls")
+                # Return the analysis
+                return {
+                    "status": "success",
+                    "mp_data": {"analysis": response_text, "formula": formula},
+                    "mcp_actions": ["strands_analysis"],
+                    "workflow_used": "Strands Agent Analysis"
+                }
             
         except Exception as e:
             logger.error(f"💥 STRANDS: Error: {e}")
@@ -447,9 +562,10 @@ Direct
         # Final fallback: return error but don't crash
         return {
             "status": "error", 
-            "message": f"Material not found", 
+            "message": f"Material not found for {formula}", 
             "mcp_actions": [],
-            "workflow_used": "Simple Query"
+            "workflow_used": "Simple Query",
+            "formula_searched": formula
         }
     
     def process_poscar_workflow(self, poscar_text: str, query: str) -> dict:
@@ -582,18 +698,24 @@ Direct
                 # For material ID queries, return the ID but mark as simple
                 return material_id  # Return the material ID instead of formula
             
+            # Skip MP search for simple molecules that don't exist in Materials Project
+            query_lower = query.lower()
+            molecular_keywords = ['h2', 'hydrogen molecule', 'water molecule', 'h2o molecule', 'co2', 'ch4', 'nh3']
+            is_molecular_query = any(mol in query_lower for mol in molecular_keywords)
+            if is_molecular_query:
+                logger.info("🔍 STRANDS: Molecular query detected - skipping Materials Project search for simple molecule")
+                return None  # Signal to skip MP search
+            
             # Common materials mentioned in queries
             materials_map = {
                 "graphene": "C", "carbon": "C", "diamond": "C",
                 "silicon": "Si", "germanium": "Ge",
-                "h2": "H2", "hydrogen": "H2",
                 "water": "H2O", "methane": "CH4",
                 "mos2": "MoS2", "ws2": "WS2", "bn": "BN",
                 "gan": "GaN", "gaas": "GaAs", "inp": "InP",
                 "tio2": "TiO2", "sio2": "SiO2", "al2o3": "Al2O3"
             }
             
-            query_lower = query.lower()
             for material, formula in materials_map.items():
                 if material in query_lower:
                     logger.info(f"🔍 STRANDS: Detected {material} → {formula}")
