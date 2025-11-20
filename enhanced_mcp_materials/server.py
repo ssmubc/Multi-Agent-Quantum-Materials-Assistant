@@ -14,11 +14,9 @@ def main():
     ])
     
     if is_aws:
-        print("🚀 MCP DISPATCHER: AWS environment detected, using aws_server.py")
         from . import aws_server
         aws_server.main()
     else:
-        print("🚀 MCP DISPATCHER: Local environment detected, using local_server.py")
         from . import local_server
         local_server.main()
 
