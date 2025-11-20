@@ -29,6 +29,62 @@ def ensure_structure_object(structure_data):
             return None
     return structure_data
 
+def get_enhanced_description(structure, material_id: str = None, structure_id: str = None, properties = None) -> str:
+    """Get enhanced structure description with Materials Project properties"""
+    try:
+        from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+        import json
+        
+        description = "Structure Information [ENHANCED]\n\n"
+        
+        # Enhanced spacegroup analysis
+        spg_info = ""
+        try:
+            spg_analyzer = SpacegroupAnalyzer(structure)
+            spg_symbol = spg_analyzer.get_space_group_symbol()
+            spg_number = spg_analyzer.get_space_group_number()
+            crystal_system = spg_analyzer.get_crystal_system()
+            
+            spg_info = f"""\nSpacegroup: {spg_symbol} (#{spg_number})\nCrystal System: {crystal_system}\n"""
+        except Exception:
+            pass
+
+        # Add Materials Project properties if available
+        mp_properties = ""
+        if properties:
+            if hasattr(properties, 'band_gap') and properties.band_gap is not None:
+                mp_properties += f"\nBand Gap: {properties.band_gap:.3f} eV"
+            if hasattr(properties, 'formation_energy_per_atom') and properties.formation_energy_per_atom is not None:
+                mp_properties += f"\nFormation Energy: {properties.formation_energy_per_atom:.3f} eV/atom"
+
+        description += f"""Material id: {material_id if material_id else 'N/A'}\nFormula: {structure.composition.formula}{spg_info.strip()}{mp_properties}\nLattice Parameters:\na={structure.lattice.a:.4f}, b={structure.lattice.b:.4f}, c={structure.lattice.c:.4f}\nAngles:\nalpha={structure.lattice.alpha:.4f}, beta={structure.lattice.beta:.4f}, gamma={structure.lattice.gamma:.4f}\nNumber of atoms: {len(structure)}\n"""
+        return json.loads(json.dumps(description))
+    except Exception as e:
+        logger.warning(f"Enhanced description failed: {e}")
+        return f"Structure {structure_id}: Enhanced description failed"
+
+def get_poscar_str(structure) -> str:
+    """Get POSCAR string with robust error handling"""
+    try:
+        logger.info(f"📋 POSCAR: Generating for {len(structure)} atoms using robust method")
+        poscar_str = structure.to(fmt="poscar")
+        logger.info(f"✅ POSCAR: Generated successfully ({len(poscar_str)} chars)")
+        return poscar_str
+    except Exception as e:
+        logger.error(f"❌ POSCAR: Generation failed ({e}), creating minimal fallback")
+        # Create minimal valid POSCAR as fallback
+        formula = structure.composition.reduced_formula
+        return f"""{formula} - Fallback POSCAR\n1.0\n10.0 0.0 0.0\n0.0 10.0 0.0\n0.0 0.0 10.0\n{formula.replace('1', '').replace('2', '').replace('3', '').replace('4', '').replace('5', '')}\n1\nDirect\n0.0 0.0 0.0\n"""
+
+def generate_structure_id(material_id: str = None, structure = None) -> str:
+    """Generate unique structure ID"""
+    if material_id:
+        return f"mp_{material_id}"
+    else:
+        import uuid
+        content = str(structure) if structure else str(uuid.uuid4())
+        return hashlib.md5(content.encode()).hexdigest()[:8]
+
 # Try to import enhanced structure data classes
 try:
     import sys
@@ -179,24 +235,9 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
                 fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
             )
             
-            # Create enhanced description with properties
-            desc = f"Structure ID: mp_{material_id}\n"
-            desc += f"Formula: {structure.composition.reduced_formula}\n"
-            desc += f"Crystal Structure: {structure.get_space_group_info()[1]}\n"
-            desc += f"Space Group: {structure.get_space_group_info()[0]}\n"
-            
-            # Add materials project data if available
-            if material_data:
-                mat = material_data[0]
-                if hasattr(mat, 'band_gap') and mat.band_gap is not None:
-                    desc += f"Band Gap: {mat.band_gap:.3f} eV\n"
-                if hasattr(mat, 'formation_energy_per_atom') and mat.formation_energy_per_atom is not None:
-                    desc += f"Formation Energy: {mat.formation_energy_per_atom:.3f} eV/atom\n"
-                if hasattr(mat, 'symmetry') and mat.symmetry and hasattr(mat.symmetry, 'crystal_system'):
-                    desc += f"Crystal System: {mat.symmetry.crystal_system}\n"
-            
-            desc += f"Lattice: a={structure.lattice.a:.3f}, b={structure.lattice.b:.3f}, c={structure.lattice.c:.3f}\n"
-            desc += f"Number of atoms: {len(structure)}"
+            # Use enhanced description
+            structure_id = generate_structure_id(material_id=material_id)
+            desc = get_enhanced_description(structure, material_id, structure_id, material_data[0] if material_data else None)
             
             # Create structure data
             structure_data = StructureData(material_id=material_id, structure=structure)
@@ -231,7 +272,37 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     structure_id = structure_uri.replace("structure://", "")
     
     if structure_id not in structure_storage:
-        return [TextContent(type="text", text="Structure not found")]
+        # Try to reload from Materials Project if it's an mp_ ID
+        if structure_id.startswith("mp_"):
+            material_id = structure_id.replace("mp_", "")
+            logger.info(f"🔄 GET_STRUCTURE: Attempting to reload {material_id} from Materials Project")
+            
+            api_key = os.getenv("MP_API_KEY")
+            if api_key:
+                try:
+                    from mp_api.client import MPRester
+                    with MPRester(api_key) as mpr:
+                        structure = mpr.get_structure_by_material_id(material_id)
+                        if structure:
+                            # Reload structure into storage
+                            material_data = mpr.materials.summary.search(
+                                material_ids=[material_id],
+                                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
+                            )
+                            
+                            structure_data = StructureData(material_id=material_id, structure=structure)
+                            structure_storage[structure_id] = structure_data
+                            logger.info(f"✅ GET_STRUCTURE: Reloaded {material_id} successfully")
+                        else:
+                            logger.error(f"❌ GET_STRUCTURE: Failed to reload {material_id}")
+                            return [TextContent(type="text", text="Structure not found")]
+                except Exception as e:
+                    logger.error(f"❌ GET_STRUCTURE: Error reloading {material_id}: {e}")
+                    return [TextContent(type="text", text="Structure not found")]
+            else:
+                return [TextContent(type="text", text="Structure not found")]
+        else:
+            return [TextContent(type="text", text="Structure not found")]
     
     structure_data = structure_storage[structure_id]
     
@@ -240,9 +311,13 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     
     try:
         if format == "cif":
-            structure_str = structure_data.structure.to(fmt="cif")
+            try:
+                structure_str = structure_data.structure.to(fmt="cif")
+            except Exception as e:
+                logger.error(f"❌ GET_STRUCTURE: CIF generation failed: {e}")
+                structure_str = f"Error generating CIF: {e}"
         else:  # poscar
-            structure_str = structure_data.poscar_str
+            structure_str = get_poscar_str(structure_data.structure)
         
         return [TextContent(type="text", text=structure_str)]
         
@@ -452,6 +527,14 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
         desc += f"Formula: {supercell.composition.reduced_formula}\n"
         desc += f"Lattice: a={supercell.lattice.a:.3f}, b={supercell.lattice.b:.3f}, c={supercell.lattice.c:.3f}"
         
+        # Also generate POSCAR for the supercell
+        try:
+            supercell_poscar = get_poscar_str(supercell)
+            desc += f"\n\nSupercell POSCAR:\n{supercell_poscar}"
+        except Exception as poscar_error:
+            logger.warning(f"⚠️ BUILD_SUPERCELL: Could not generate POSCAR: {poscar_error}")
+            desc += "\n\nPOSCAR generation failed"
+        
         logger.info(f"Supercell built successfully: {supercell_uri}")
         return [
             TextContent(type="text", text=f"Supercell created with URI: {supercell_uri}"),
@@ -541,57 +624,134 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         except Exception as ee:
             logger.warning(f"Enhanced moire generation failed: {ee}, using fallback")
         
-        # Fallback to simplified moire bilayer generation
-        bulk_structure = bulk_data.structure
+        # Enhanced moire generation with diagnostics (like local server)
+        def generate_enhanced_moire_bilayer(structure, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float):
+            """Enhanced moire bilayer generation with diagnostics"""
+            diagnostics = []
+            diagnostics.append("AWS ENHANCED MODE: Moire generation with diagnostics")
+            diagnostics.append(f"AWS ENHANCED MODE: {len(structure)} atoms, {twist_angle}° twist")
+            
+            try:
+                import numpy as np
+                from pymatgen.core.lattice import Lattice
+                from pymatgen.core.structure import Structure
+                
+                # Create two layers with twist
+                layer1 = structure.copy()
+                layer2 = structure.copy()
+                
+                # Apply twist to second layer (rotation around z-axis)
+                angle_rad = np.radians(twist_angle)
+                rotation_matrix = np.array([
+                    [np.cos(angle_rad), -np.sin(angle_rad), 0],
+                    [np.sin(angle_rad), np.cos(angle_rad), 0],
+                    [0, 0, 1]
+                ])
+                
+                # Rotate layer2 coordinates
+                for i, site in enumerate(layer2):
+                    new_coords = np.dot(rotation_matrix, site.coords)
+                    layer2[i] = site.specie, new_coords
+                
+                # Shift layer2 up by interlayer_spacing
+                layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+                
+                # Combine layers
+                moire_sites = list(layer1.sites) + list(layer2.sites)
+                
+                # Limit number of atoms
+                if len(moire_sites) > max_num_atoms:
+                    moire_sites = moire_sites[:max_num_atoms]
+                
+                # Create new lattice with vacuum
+                old_lattice = layer1.lattice
+                new_lattice_matrix = old_lattice.matrix.copy()
+                new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+                new_lattice = Lattice(new_lattice_matrix)
+                
+                # Create moire structure
+                final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+                diagnostics.append(f"AWS ENHANCED MODE: Completed - {len(final_structure)} atoms")
+                return final_structure, "\n".join(diagnostics)
+                
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                diagnostics.append(f"AWS FALLBACK MODE: Enhanced generation failed: {e}")
+                diagnostics.append(f"AWS FALLBACK MODE: Full error trace: {error_details}")
+                # Simple fallback
+                layer1 = structure.copy()
+                layer2 = structure.copy()
+                layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+                
+                moire_sites = list(layer1.sites) + list(layer2.sites)
+                if len(moire_sites) > max_num_atoms:
+                    moire_sites = moire_sites[:max_num_atoms]
+                
+                old_lattice = layer1.lattice
+                new_lattice_matrix = old_lattice.matrix.copy()
+                new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+                new_lattice = Lattice(new_lattice_matrix)
+                
+                final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+                diagnostics.append(f"AWS FALLBACK MODE: Completed - {len(final_structure)} atoms")
+                return final_structure, "\n".join(diagnostics)
         
-        # Create two layers with twist
-        import numpy as np
-        from pymatgen.core.lattice import Lattice
-        from pymatgen.core.structure import Structure
-        
-        # Get the original structure
-        layer1 = bulk_structure.copy()
-        layer2 = bulk_structure.copy()
-        
-        # Apply twist to second layer (rotation around z-axis)
-        angle_rad = np.radians(twist_angle)
-        rotation_matrix = np.array([
-            [np.cos(angle_rad), -np.sin(angle_rad), 0],
-            [np.sin(angle_rad), np.cos(angle_rad), 0],
-            [0, 0, 1]
-        ])
-        
-        # Rotate layer2 coordinates
-        for i, site in enumerate(layer2):
-            new_coords = np.dot(rotation_matrix, site.coords)
-            layer2[i] = site.specie, new_coords
-        
-        # Shift layer2 up by interlayer_spacing
-        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
-        
-        # Combine layers
-        moire_sites = list(layer1.sites) + list(layer2.sites)
-        
-        # Limit number of atoms
-        if len(moire_sites) > max_num_atoms:
-            moire_sites = moire_sites[:max_num_atoms]
-        
-        # Create new lattice with vacuum
-        old_lattice = layer1.lattice
-        new_lattice_matrix = old_lattice.matrix.copy()
-        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
-        new_lattice = Lattice(new_lattice_matrix)
-        
-        # Create moire structure
-        moire_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        # Use enhanced moire generation
+        logger.info(f"🌀 MOIRE: Starting generation for {len(bulk_data.structure)} atoms, {twist_angle}° twist")
+        try:
+            moire_structure, diagnostics = generate_enhanced_moire_bilayer(
+                structure=bulk_data.structure,
+                interlayer_spacing=interlayer_spacing,
+                max_num_atoms=max_num_atoms,
+                twist_angle=twist_angle,
+                vacuum_thickness=vacuum_thickness
+            )
+            logger.info(f"✅ MOIRE: Generation completed successfully")
+        except Exception as e:
+            logger.error(f"❌ MOIRE: Generation failed: {e}")
+            return [TextContent(type="text", text=f"Error generating moire bilayer: {str(e)}")]
         
         # Store the moire structure
         moire_data = StructureData(structure=moire_structure)
         structure_storage[moire_data.structure_id] = moire_data
         
         moire_uri = f"structure://{moire_data.structure_id}"
+        logger.info(f"🌀 MOIRE: Created structure {moire_uri} with {len(moire_structure)} atoms")
         
-        return [TextContent(type="text", text=f"Moire structure is created with the structure uri: {moire_uri}")]
+        # Extract method type from diagnostics for immediate visibility
+        method_type = "UNKNOWN"
+        if "AWS ENHANCED MODE" in diagnostics:
+            method_type = "AWS ENHANCED MODE"
+        elif "AWS FALLBACK MODE" in diagnostics:
+            method_type = "AWS FALLBACK MODE"
+        
+        # Log diagnostics to server console
+        logger.info(f"🔧 MOIRE: Using {method_type}")
+        for line in diagnostics.split("\n")[:5]:  # Only log first 5 lines
+            if line.strip():
+                logger.info(f"🔧 MOIRE: {line.strip()}")
+        
+        # Get structure data for display
+        try:
+            structure_poscar = get_poscar_str(moire_structure)
+            structure_desc = get_enhanced_description(moire_structure, None, moire_data.structure_id)
+        except Exception as e:
+            structure_poscar = f"Error getting structure data: {e}"
+            structure_desc = f"Structure with {len(moire_structure)} atoms"
+        
+        # Combine all info in first item so Streamlit displays it
+        combined_text = f"{method_type}: Moire structure created with URI: {moire_uri}\n\n"
+        combined_text += f"DIAGNOSTICS:\n{diagnostics}\n\n"
+        combined_text += f"STRUCTURE DESCRIPTION:\n{structure_desc}\n\n"
+        combined_text += f"POSCAR DATA:\n{structure_poscar}"
+        
+        return [
+            TextContent(type="text", text=combined_text),
+            TextContent(type="text", text=f"STRUCTURE DESCRIPTION:\n{structure_desc}"),
+            TextContent(type="text", text=f"POSCAR DATA:\n{structure_poscar}"),
+            TextContent(type="text", text=f"FULL DIAGNOSTICS:\n{diagnostics}")
+        ]
         
     except Exception as e:
         return [TextContent(type="text", text=f"Error generating moire bilayer: {str(e)}")]
