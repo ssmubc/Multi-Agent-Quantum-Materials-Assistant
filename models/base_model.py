@@ -719,7 +719,7 @@ print("For accurate Si simulation, use DFT-derived tight-binding parameters.")
             else:
                 # Generate standard materials Hamiltonian with proper fermionic mapping
                 bg = fe = None
-                if isinstance(mp_data, dict):
+                if mp_data and isinstance(mp_data, dict):
                     bg = mp_data.get("band_gap")
                     fe = mp_data.get("formation_energy")
                 
@@ -768,22 +768,41 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
             logger.info(f"🔍 BASE MODEL: Parameters - include_mp_data={include_mp_data}, mp_agent_type={type(self.mp_agent)}")
             
             # Extract potential formula/material from query
-            # First try element names
+            # First check for molecular compounds
+            molecular_compounds = {
+                'h2': 'H2', 'hydrogen molecule': 'H2', 'hydrogen gas': 'H2',
+                'h2o': 'H2O', 'water': 'H2O', 'water molecule': 'H2O',
+                'co2': 'CO2', 'carbon dioxide': 'CO2',
+                'ch4': 'CH4', 'methane': 'CH4',
+                'nh3': 'NH3', 'ammonia': 'NH3',
+                'co': 'CO', 'carbon monoxide': 'CO',
+                'n2': 'N2', 'nitrogen': 'N2',
+                'o2': 'O2', 'oxygen': 'O2'
+            }
+            
+            # Then element names
             element_names = {
                 'silicon': 'Si', 'titanium': 'Ti', 'iron': 'Fe', 'copper': 'Cu',
-                'aluminum': 'Al', 'carbon': 'C', 'oxygen': 'O', 'hydrogen': 'H',
-                'lithium': 'Li', 'sodium': 'Na', 'potassium': 'K', 'calcium': 'Ca',
-                'magnesium': 'Mg', 'zinc': 'Zn', 'nickel': 'Ni', 'cobalt': 'Co'
+                'aluminum': 'Al', 'carbon': 'C', 'lithium': 'Li', 'sodium': 'Na', 
+                'potassium': 'K', 'calcium': 'Ca', 'magnesium': 'Mg', 'zinc': 'Zn', 
+                'nickel': 'Ni', 'cobalt': 'Co'
             }
             
             formula = None
             query_lower = query.lower()
             
-            # Check for element names first
-            for name, symbol in element_names.items():
-                if name in query_lower:
-                    formula = symbol
+            # Check for molecular compounds first (higher priority)
+            for compound, mol_formula in molecular_compounds.items():
+                if compound in query_lower:
+                    formula = mol_formula
                     break
+            
+            # Check for element names if no molecule found
+            if not formula:
+                for name, symbol in element_names.items():
+                    if name in query_lower:
+                        formula = symbol
+                        break
             
             # Check for POSCAR structure first
             if 'poscar' in query_lower or ('direct' in query_lower and any(line.strip().replace('.','').replace(' ','').isdigit() for line in query.split('\n'))):
@@ -815,6 +834,8 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 else:
                     # Try chemical formulas - comprehensive pattern matching
                     compound_patterns = [
+                        # Simple molecules first (highest priority)
+                        r'\bH2\b', r'\bH2O\b', r'\bNH3\b', r'\bCH4\b', r'\bCO2\b', r'\bCO\b', r'\bN2\b', r'\bO2\b',
                         # Common oxides
                         r'\bTiO2\b', r'\bSiO2\b', r'\bAl2O3\b', r'\bFe2O3\b', r'\bCuO\b',
                         r'\bZnO\b', r'\bMgO\b', r'\bCaO\b', r'\bNiO\b', r'\bCoO\b',
@@ -825,9 +846,7 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                         # 2D Materials
                         r'\bMoS2\b', r'\bWS2\b', r'\bWSe2\b', r'\bMoSe2\b', r'\bBN\b',
                         # Complex compounds
-                        r'\bYBa2Cu3O7\b', r'\bBi2Te3\b', r'\bSi3N4\b', r'\bWC\b', r'\bTiC\b',
-                        # Water and common molecules
-                        r'\bH2O\b', r'\bNH3\b', r'\bCH4\b', r'\bCO2\b', r'\bCO\b'
+                        r'\bYBa2Cu3O7\b', r'\bBi2Te3\b', r'\bSi3N4\b', r'\bWC\b', r'\bTiC\b'
                     ]
                     
                     for pattern in compound_patterns:
@@ -860,31 +879,43 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 self._cached_strands_result = strands_result
             elif include_mp_data and self.mp_agent:
                 logger.info(f"🔍 BASE MODEL: include_mp_data={include_mp_data}, mp_agent={type(self.mp_agent) if self.mp_agent else None}")
-                try:
-                    from agents.supervisor_agent import SupervisorAgent
-                    supervisor = SupervisorAgent(self.mp_agent)
-                    
-                    logger.info(f"🤖 BASE MODEL: Using supervisor agent for query: {query[:100]}...")
-                    supervisor_result = supervisor.process_query(query, formula)
-                    
-                    if supervisor_result and supervisor_result.get("status") == "success":
-                        mp_data = supervisor_result.get("mp_data")
-                        mcp_actions = supervisor_result.get("mcp_actions", [])
-                        logger.info(f"✅ BASE MODEL: Supervisor handled query with {len(mcp_actions)} MCP actions: {mcp_actions}")
-                    else:
-                        logger.warning(f"⚠️ BASE MODEL: Supervisor returned error: {supervisor_result}")
+                
+                # Check if this is a molecular query that should skip MP search
+                query_lower = query.lower()
+                molecular_keywords = ['h2', 'hydrogen molecule', 'water molecule', 'h2o molecule', 'co2', 'ch4', 'nh3', 'h2 molecule', 'hydrogen gas']
+                is_molecular_query = any(mol in query_lower for mol in molecular_keywords)
+                
+                if is_molecular_query:
+                    logger.info(f"🧪 BASE MODEL: Molecular query detected - skipping supervisor agent for simple molecule")
+                    mp_data = None  # Skip MP data for molecular queries
+                else:
+                    try:
+                        from agents.supervisor_agent import SupervisorAgent
+                        supervisor = SupervisorAgent(self.mp_agent)
                         
-                except ImportError as ie:
-                    logger.error(f"💥 BASE MODEL: Cannot import supervisor agent: {ie}")
-                except Exception as e:
-                    logger.error(f"💥 BASE MODEL: Supervisor error: {e}")
+                        logger.info(f"🤖 BASE MODEL: Using supervisor agent for query: {query[:100]}...")
+                        supervisor_result = supervisor.process_query(query, formula)
+                        
+                        if supervisor_result and supervisor_result.get("status") == "success":
+                            mp_data = supervisor_result.get("mp_data")
+                            mcp_actions = supervisor_result.get("mcp_actions", [])
+                            logger.info(f"✅ BASE MODEL: Supervisor handled query with {len(mcp_actions)} MCP actions: {mcp_actions}")
+                        else:
+                            logger.warning(f"⚠️ BASE MODEL: Supervisor returned error: {supervisor_result}")
+                            
+                    except ImportError as ie:
+                        logger.error(f"💥 BASE MODEL: Cannot import supervisor agent: {ie}")
+                    except Exception as e:
+                        logger.error(f"💥 BASE MODEL: Supervisor error: {e}")
                     
-                # Fix: Handle case where mp_data is a list instead of dict
+                # Fix: Handle case where mp_data is a list instead of dict, or None for molecular queries
                 if mp_data:
                     if isinstance(mp_data, list):
                         logger.warning(f"⚠️ BASE MODEL: MP data is list (timeout fallback), converting to dict")
                         mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data)}
                     logger.info(f"✅ BASE MODEL: MP data retrieved: {type(mp_data)} with keys: {list(mp_data.keys()) if isinstance(mp_data, dict) else 'N/A'}")
+                elif mp_data is None:
+                    logger.info(f"🧪 BASE MODEL: No MP data for molecular query: {formula}")
                 else:
                     logger.warning(f"❌ BASE MODEL: No MP data retrieved for {formula}")
             else:
@@ -893,10 +924,22 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
             # Store original query in intent for code generation logic
             intent["original_query"] = query
             
-            # Ensure mp_data is dict before passing to code generation
+            # Ensure mp_data is dict before passing to code generation (handle None for molecular queries)
             if mp_data and isinstance(mp_data, list):
                 logger.warning(f"⚠️ BASE MODEL: Converting list mp_data to dict for code generation")
                 mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data), "error": "timeout_fallback"}
+            elif mp_data is None:
+                # For molecular queries, create minimal dict to avoid None errors
+                logger.info(f"🧪 BASE MODEL: Creating minimal mp_data dict for molecular query")
+                # Use the correct molecular formula, not the extracted one
+                molecular_formula = formula
+                if 'h2' in query.lower() and 'molecule' in query.lower():
+                    molecular_formula = 'H2'
+                elif 'h2o' in query.lower():
+                    molecular_formula = 'H2O'
+                elif 'co2' in query.lower():
+                    molecular_formula = 'CO2'
+                mp_data = {"formula": molecular_formula, "molecular_query": True}
             
             # Generate base code with braket_mode awareness
             base_code = self.generate_base_code(formula, intent, mp_data, braket_mode)
@@ -975,24 +1018,17 @@ LIMITATIONS in Braket mode:
         else:
             system_header = """You are an expert quantum-materials research assistant. Answer the user's question directly and provide relevant information based on their specific request.
 
-IMPORTANT MCP INTEGRATION REQUIREMENTS:
-- ALWAYS acknowledge when Materials Project MCP data is provided
-- ALWAYS acknowledge when Braket MCP circuits are generated
-- Use EXACT coordinates and properties from Materials Project data
-- Reference specific material IDs (mp-XXXX) when available
-- Mention MCP operations performed in your response
-
 When generating code:
 - Use only public, documented Qiskit / Qiskit-Nature APIs compatible with Qiskit v1.2.4
 - Prefer Jordan–Wigner mapping unless told otherwise
 - Include parameter counts and circuit depth when relevant
-- Use REAL Materials Project coordinates when provided
+- Use provided coordinates and properties when available
 
 When showing materials data:
 - If user asks for "available options" or "show me materials", list all found materials
 - If user asks for specific analysis, focus on the most relevant material
-- Always echo the material IDs, composition, and key properties you're using
-- Explicitly state "Using Materials Project data from MCP server" when applicable"""
+- Echo the material IDs, composition, and key properties you're using
+- Only mention data sources when they were actually used"""
         
         # Adjust base code description based on mode
         code_description = "base Braket SDK code" if braket_mode == "Amazon Braket" else "base Qiskit code"
@@ -1013,16 +1049,19 @@ Detected Intent: {json.dumps(intent, indent=2)}
 
 """
         
-        if mp_data and not mp_data.get("error"):
+        if mp_data and isinstance(mp_data, dict) and not mp_data.get("error"):
             mp_geometry = mp_data.get('geometry', '')
             material_id = mp_data.get('material_id', 'Unknown')
             formula = mp_data.get('formula', 'Unknown')
             band_gap = mp_data.get('band_gap', 'N/A')
             formation_energy = mp_data.get('formation_energy', 'N/A')
             
+            # Check if this is actually from MCP or just a molecular query
+            is_molecular_query = mp_data.get('molecular_query', False) or formula in ['H2', 'H2O', 'CO2', 'CH4', 'NH3'] or 'molecule' in query.lower()
+            
             if show_debug:
                 # Full debug information
-                prompt += f"""MATERIALS PROJECT MCP DATA RETRIEVED:
+                prompt += f"""MATERIALS PROJECT DATA AVAILABLE:
 Material ID: {material_id}
 Formula: {formula}
 Band Gap: {band_gap} eV
@@ -1031,29 +1070,36 @@ Formation Energy: {formation_energy} eV/atom
 Full Materials Project Data:
 {json.dumps(mp_data, indent=2, default=str)}
 
-CRITICAL INSTRUCTIONS:
-1. MUST acknowledge "Retrieved from Materials Project MCP server: {material_id}"
-2. MUST use the EXACT geometry coordinates provided:
+INSTRUCTIONS:
+1. Use the EXACT geometry coordinates provided:
 {mp_geometry}
-3. Do NOT use generic or idealized coordinates
-4. Reference the specific material ID in your response
-5. Mention the MCP server was used for data retrieval
+2. Do NOT use generic or idealized coordinates
+3. Reference the specific material ID in your response if applicable
+4. Only mention MCP server if data was actually retrieved from Materials Project
 
 """
             else:
                 # Clean mode - minimal MP data context
-                prompt += f"""Materials Project data available for {material_id} ({formula}).
+                if not is_molecular_query:
+                    prompt += f"""Materials Project data available for {material_id} ({formula}).
 Band Gap: {band_gap} eV, Formation Energy: {formation_energy} eV/atom
 Geometry coordinates: {mp_geometry}
 
-Use this data in your response and mention it came from Materials Project.
+Use this data in your response.
+
+"""
+                else:
+                    prompt += f"""Using molecular geometry for {formula}.
+Geometry coordinates: {mp_geometry}
+
+Generate appropriate molecular quantum simulation code.
 
 """
         
         # Add complete Strands context if available
         if hasattr(self, '_cached_strands_result') and self._cached_strands_result:
             strands_data = self._cached_strands_result
-            mp_data_from_strands = strands_data.get('mp_data', {})
+            mp_data_from_strands = strands_data.get('mp_data') or {}
             mcp_actions = strands_data.get('mcp_actions', [])
             moire_params = strands_data.get('moire_params', {})
             
@@ -1117,7 +1163,7 @@ This is production-ready quantum simulation code generated by AWS Strands. Inclu
                 if 'plot_structure' in mcp_actions:
                     prompt += "3D STRUCTURE VISUALIZATION: Generated and available for display\n\n"
                 
-                mp_geometry = mp_data_from_strands.get('geometry', '')
+                mp_geometry = mp_data_from_strands.get('geometry', '') if mp_data_from_strands else ''
                 if mp_geometry:
                     prompt += f"""CRITICAL - USE EXACT COORDINATES:
 {mp_geometry}
@@ -1132,8 +1178,8 @@ If Strands generated quantum code above, you MUST include it in your response an
 """
             else:
                 # Clean mode - minimal Strands context
-                material_id = mp_data_from_strands.get('material_id', 'Unknown')
-                formula = mp_data_from_strands.get('formula', 'Unknown')
+                material_id = mp_data_from_strands.get('material_id', 'Unknown') if mp_data_from_strands else 'Unknown'
+                formula = mp_data_from_strands.get('formula', 'Unknown') if mp_data_from_strands else 'Unknown'
                 
                 prompt += f"""\n\nStrands workflow completed for {material_id} ({formula}).
 MCP operations: {len(mcp_actions)} tools used.
@@ -1148,10 +1194,10 @@ Provide a clean scientific response using this data without showing technical pr
 Provide a comprehensive response with:
 1. Scientific explanation of the concepts
 2. Detailed analysis of the materials/structures involved  
-3. Complete, runnable code using ACTUAL Materials Project coordinates and acknowledging MCP operations
+3. Complete, runnable code using provided coordinates
 4. Practical applications and next steps
 
-IMPORTANT: If MCP operations were performed above, reference them in your response. Use exact coordinates and structure URIs provided.
+IMPORTANT: Only mention MCP operations if they were actually performed above. Use exact coordinates and structure URIs provided.
 
 Keep your response focused and match what the user specifically requested."""
         else:
@@ -1160,10 +1206,10 @@ Keep your response focused and match what the user specifically requested."""
 Focus on:
 1. Clear scientific explanation
 2. Practical quantum computing implementation
-3. Working code with real Materials Project data
+3. Working code with appropriate molecular or materials data
 4. Key insights and applications
 
-Do NOT include technical processing details, MCP tool logs, or debugging information in your response. Keep it clean and user-friendly."""
+Do NOT include acknowledgment sections about MCP operations unless they were actually used. Keep it clean and user-friendly."""
         
         return prompt
     
