@@ -112,6 +112,7 @@ DOCKER_BUILD_FIX.md
 aws_security_recommendations.md
 requirements_minimal.txt
 create_deployment_zip.py
+.ebextensions/02_https_alb.config
 
 # Version directories
 0.*/
