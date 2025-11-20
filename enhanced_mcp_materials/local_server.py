@@ -7,8 +7,128 @@ import base64
 import logging
 import hashlib
 from typing import List, Dict, Any, Literal
-from mcp.server.fastmcp import FastMCP
-from mcp.types import TextContent, ImageContent
+try:
+    from fastmcp import FastMCP
+    from mcp.types import TextContent, ImageContent
+except ImportError:
+    try:
+        from mcp.server.fastmcp import FastMCP
+        from mcp.types import TextContent, ImageContent
+    except ImportError:
+        # Create working MCP protocol implementation
+        import json
+        import sys
+        
+        class TextContent:
+            def __init__(self, type, text):
+                self.type = type
+                self.text = text
+                
+            def to_dict(self):
+                return {"type": self.type, "text": self.text}
+        
+        class ImageContent:
+            def __init__(self, type, data, mimeType):
+                self.type = type
+                self.data = data
+                self.mimeType = mimeType
+                
+            def to_dict(self):
+                return {"type": self.type, "data": self.data, "mimeType": self.mimeType}
+        
+        class FastMCP:
+            def __init__(self, name):
+                self.name = name
+                self.tools = {}
+                
+            def tool(self):
+                def decorator(func):
+                    self.tools[func.__name__] = func
+                    return func
+                return decorator
+                
+            def run(self, mode):
+                """Run MCP server with proper JSON-RPC protocol"""
+                if mode != "stdio":
+                    return
+                
+                # Read from stdin and write to stdout
+                while True:
+                    try:
+                        line = sys.stdin.readline()
+                        if not line:
+                            break
+                            
+                        request = json.loads(line.strip())
+                        response = self._handle_request(request)
+                        
+                        if response:
+                            sys.stdout.write(json.dumps(response) + "\n")
+                            sys.stdout.flush()
+                            
+                    except (json.JSONDecodeError, KeyboardInterrupt, EOFError):
+                        break
+                    except Exception as e:
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id") if 'request' in locals() else None,
+                            "error": {"code": -32603, "message": str(e)}
+                        }
+                        sys.stdout.write(json.dumps(error_response) + "\n")
+                        sys.stdout.flush()
+                        
+            def _handle_request(self, request):
+                """Handle JSON-RPC request"""
+                method = request.get("method")
+                
+                if method == "initialize":
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request.get("id"),
+                        "result": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {
+                                "tools": {"listChanged": True}
+                            },
+                            "serverInfo": {
+                                "name": self.name,
+                                "version": "1.0.0"
+                            }
+                        }
+                    }
+                elif method == "tools/call":
+                    params = request.get("params", {})
+                    tool_name = params.get("name")
+                    arguments = params.get("arguments", {})
+                    
+                    if tool_name in self.tools:
+                        try:
+                            result = self.tools[tool_name](**arguments)
+                            # Convert result to proper format
+                            if isinstance(result, list):
+                                content = [item.to_dict() if hasattr(item, 'to_dict') else item for item in result]
+                            else:
+                                content = [result.to_dict() if hasattr(result, 'to_dict') else result]
+                            
+                            return {
+                                "jsonrpc": "2.0",
+                                "id": request.get("id"),
+                                "result": {"content": content}
+                            }
+                        except Exception as e:
+                            return {
+                                "jsonrpc": "2.0",
+                                "id": request.get("id"),
+                                "error": {"code": -32603, "message": str(e)}
+                            }
+                    else:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "error": {"code": -32601, "message": f"Tool not found: {tool_name}"}
+                        }
+                
+                return None
 from mp_api.client import MPRester
 from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
@@ -119,10 +239,21 @@ def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
     
     try:
         with MPRester(api_key) as mpr:
-            results = mpr.materials.summary.search(
-                formula=chemical_formula, 
-                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
-            )
+            # Try new API fields first, fallback to old ones
+            try:
+                results = mpr.materials.summary.search(
+                    formula=chemical_formula, 
+                    fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom"]
+                )
+            except Exception as api_error:
+                logger.warning(f"New API failed, trying legacy fields: {api_error}")
+                try:
+                    results = mpr.materials.summary.search(
+                        formula=chemical_formula
+                    )
+                except Exception as legacy_error:
+                    logger.error(f"Both API attempts failed: {legacy_error}")
+                    return [TextContent(type="text", text=f"API Error: {str(legacy_error)}")]
             
             if not results:
                 return [TextContent(type="text", text=f"No materials found for formula: {chemical_formula}")]
@@ -166,16 +297,39 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
         return [TextContent(type="text", text="Error: MP_API_KEY environment variable not set")]
     
     try:
+        # Ensure material_id is properly formatted
+        if not material_id.startswith('mp-'):
+            material_id = f"mp-{material_id}"
+        
+        logger.info(f"🔍 SELECT_MATERIAL: Searching for {material_id}")
+        
         with MPRester(api_key) as mpr:
-            structure = mpr.get_structure_by_material_id(material_id)
-            if not structure:
-                return [TextContent(type="text", text=f"Material not found: {material_id}")]
+            # Try to get structure first
+            try:
+                structure = mpr.get_structure_by_material_id(material_id)
+                if not structure:
+                    logger.error(f"❌ SELECT_MATERIAL: No structure found for {material_id}")
+                    return [TextContent(type="text", text=f"Material not found: {material_id}")]
+                logger.info(f"✅ SELECT_MATERIAL: Found structure for {material_id} with {len(structure)} atoms")
+            except Exception as struct_error:
+                logger.error(f"❌ SELECT_MATERIAL: Structure lookup failed for {material_id}: {struct_error}")
+                return [TextContent(type="text", text=f"Error getting structure for {material_id}: {struct_error}")]
             
-            # Get material properties
-            material_data = mpr.materials.summary.search(
-                material_ids=[material_id],
-                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
-            )
+            # Get material properties with API compatibility
+            try:
+                material_data = mpr.materials.summary.search(
+                    material_ids=[material_id],
+                    fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom"]
+                )
+                logger.info(f"✅ SELECT_MATERIAL: Found properties for {material_id}")
+            except Exception as props_error:
+                logger.warning(f"⚠️ SELECT_MATERIAL: Properties lookup failed, trying without fields: {props_error}")
+                try:
+                    material_data = mpr.materials.summary.search(material_ids=[material_id])
+                    logger.info(f"✅ SELECT_MATERIAL: Found properties for {material_id} (no fields)")
+                except Exception as fallback_error:
+                    logger.warning(f"⚠️ SELECT_MATERIAL: All properties lookup failed for {material_id}: {fallback_error}")
+                    material_data = []
             
             structure_id = generate_structure_id(material_id=material_id)
             structure_storage[structure_id] = {
@@ -644,9 +798,7 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
 
 def main():
     """Main entry point for the MCP server"""
-    logging.basicConfig(level=logging.INFO)
-    logger.info("Starting Enhanced MCP Materials Project server with 8 tools")
-    logger.info("Available tools: search_materials_by_formula, select_material_by_id, get_structure_data, create_structure_from_poscar, create_structure_from_cif, plot_structure, build_supercell, moire_homobilayer")
+    logging.basicConfig(level=logging.ERROR)  # Reduce logging to prevent JSON interference
     mcp.run("stdio")
 
 if __name__ == "__main__":
