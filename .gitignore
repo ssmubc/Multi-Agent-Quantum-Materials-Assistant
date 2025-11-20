@@ -108,11 +108,9 @@ run_app.bat
 # Development/backup files
 .ebextensions_backup/
 *.zip
-BRAKET_SETUP.md
 DEPLOYMENT_*.md
 DOCKER_BUILD_FIX.md
 aws_security_recommendations.md
-install_braket.py
 requirements_minimal.txt
 
 # Version directories
