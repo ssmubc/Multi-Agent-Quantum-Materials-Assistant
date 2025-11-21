@@ -1,22 +1,49 @@
-from strands import Agent
-from strands_tools import use_aws, batch, retrieve
+import logging
 from .strands_dft_agent import StrandsDFTAgent
 from .strands_structure_agent import StrandsStructureAgent
-import logging
-import json
-import re
 
 logger = logging.getLogger(__name__)
+
+# Mock classes for local testing
+class MockAgent:
+    def __init__(self, model=None, tools=None, system_prompt=None):
+        self.model = model
+        self.tools = tools
+        self.system_prompt = system_prompt
+    
+    def __call__(self, prompt):
+        return type('Response', (), {'text': f"Mock response to: {prompt[:50]}..."})() 
+
+# Set defaults
+Agent = MockAgent
+use_aws = None
+batch = None
+retrieve = None
+
+try:
+    from strands_agents import Agent as RealAgent
+    from strands_agents_tools import use_aws as real_use_aws, batch as real_batch, retrieve as real_retrieve
+    Agent = RealAgent
+    use_aws = real_use_aws
+    batch = real_batch
+    retrieve = real_retrieve
+except ImportError as e:
+    logger.warning(f"Strands not available locally: {e}")
+import json
+import re
 
 class StrandsCoordinator:
     """Strands-based multi-agent coordinator replacing aws_strands_coordinator"""
     
     def __init__(self, mp_agent):
         self.mp_agent = mp_agent
-        self.coordinator = Agent(
-            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-            tools=[use_aws, batch, retrieve]
-        )
+        if use_aws:
+            self.coordinator = Agent(
+                model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                tools=[use_aws, batch, retrieve]
+            )
+        else:
+            self.coordinator = MockAgent()
         
         # Initialize specialized agents with capabilities
         self.agents = {
