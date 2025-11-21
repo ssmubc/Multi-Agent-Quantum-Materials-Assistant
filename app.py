@@ -182,37 +182,23 @@ def check_aws_credentials():
         return False, f"AWS credential error: {error_msg}"
 
 def setup_materials_project():
-    """Setup Materials Project API"""
+    """Setup Materials Project API with automatic configuration"""
     st.sidebar.subheader("🔬 Materials Project API")
-    
-    # Option 1: Use MCP Materials Project server
-    use_mcp = st.sidebar.checkbox(
-        "Use MCP Materials Project Server",
-        help="Use advanced MCP server for Materials Project access"
-    )
-    
-    # Option 2: Use AWS Secrets Manager
-    use_secrets_manager = st.sidebar.checkbox(
-        "Use AWS Secrets Manager for MP API Key",
-        help="Retrieve MP API key from AWS Secrets Manager"
-    )
     
     mp_api_key = None
     
-    if use_secrets_manager:
-        if st.session_state.aws_configured:
-            try:
-                mp_api_key = get_mp_api_key()
-                if mp_api_key:
-                    st.sidebar.success("✅ MP API key retrieved from Secrets Manager")
-                else:
-                    st.sidebar.error("❌ Failed to retrieve MP API key from Secrets Manager")
-            except Exception as e:
-                st.sidebar.error(f"❌ Secrets Manager error: {str(e)}")
-        else:
-            st.sidebar.warning("⚠️ AWS credentials required for Secrets Manager")
+    # Auto-detect API key from Secrets Manager first
+    if st.session_state.aws_configured:
+        try:
+            mp_api_key = get_mp_api_key()
+            if mp_api_key:
+                st.sidebar.success("✅ MP API key auto-detected from Secrets Manager")
+            else:
+                st.sidebar.info("ℹ️ No MP API key found in Secrets Manager")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Secrets Manager check failed: {str(e)}")
     
-    # Option 2: Manual input
+    # Manual input only if no key found
     if not mp_api_key:
         mp_api_key = st.sidebar.text_input(
             "Materials Project API Key",
@@ -222,25 +208,27 @@ def setup_materials_project():
         )
     
     if mp_api_key:
+        # Check if MCP agent already exists with same API key
+        if (hasattr(st.session_state, 'mp_agent') and 
+            st.session_state.mp_agent and 
+            hasattr(st.session_state, 'mp_api_key_hash') and
+            st.session_state.mp_api_key_hash == hash(mp_api_key)):
+            st.sidebar.success("✅ Enhanced MCP server already running (cached)")
+            return True
+        
         try:
-            if use_mcp:
-                logger.info("🚀 STREAMLIT: Initializing Enhanced MCP Materials Project Agent")
-                # Get debug setting from session state if available
-                show_debug = getattr(st.session_state, 'show_debug', False)
-                # Create a placeholder debug callback for initial setup
-                def initial_debug_callback(message):
-                    logger.info(f"MCP DEBUG: {message}")
-                st.session_state.mp_agent = EnhancedMCPAgent(api_key=mp_api_key, show_debug=show_debug, debug_callback=initial_debug_callback)
-                st.sidebar.success("✅ Enhanced MCP Materials Project server configured")
-                logger.info("✅ STREAMLIT: Enhanced MCP Agent initialized successfully")
-            else:
-                logger.info("🔧 STREAMLIT: Initializing standard Materials Project Agent")
-                st.session_state.mp_agent = MaterialsProjectAgent(api_key=mp_api_key)
-                st.sidebar.success("✅ Materials Project API configured")
-                logger.info("✅ STREAMLIT: Standard MP Agent initialized successfully")
+            # Create new MCP agent only if needed
+            logger.info("🚀 STREAMLIT: Initializing Enhanced MCP Materials Project Agent")
+            show_debug = getattr(st.session_state, 'show_debug', False)
+            def initial_debug_callback(message):
+                logger.info(f"MCP DEBUG: {message}")
+            st.session_state.mp_agent = EnhancedMCPAgent(api_key=mp_api_key, show_debug=show_debug, debug_callback=initial_debug_callback)
+            st.session_state.mp_api_key_hash = hash(mp_api_key)  # Cache key hash
+            st.sidebar.success("✅ Enhanced MCP Materials Project server configured")
+            logger.info("✅ STREAMLIT: Enhanced MCP Agent initialized successfully")
             
             # Auto-store manually entered key to Secrets Manager
-            if st.session_state.aws_configured and not use_secrets_manager:
+            if st.session_state.aws_configured and mp_api_key and not get_mp_api_key():
                 from utils.secrets_manager import store_mp_api_key
                 if store_mp_api_key(mp_api_key):
                     st.sidebar.info("💾 API key saved to AWS Secrets Manager for future use")
@@ -425,20 +413,20 @@ def main():
                     else:
                         st.warning("MCP server not active")
         else:
-            st.sidebar.info("🔧 Standard MP API Active")
-            st.sidebar.warning("⚠️ Limited to basic MP features")
+            st.sidebar.info("🔧 Enhanced MCP Server Active")
+            st.sidebar.success("✅ All advanced features available")
             
-            # Test standard API button
-            with st.sidebar.expander("🔍 Test Standard API"):
-                if st.button("🧪 Test API", help="Test standard MP API with mp-149"):
+            # Test MCP server button
+            with st.sidebar.expander("🔍 Test Enhanced MCP"):
+                if st.button("🧪 Test MCP", help="Test Enhanced MCP server with mp-149"):
                     try:
                         result = st.session_state.mp_agent.search("mp-149")
                         if result and 'error' not in result:
-                            st.success("Standard API Test Success")
+                            st.success("Enhanced MCP Test Success")
                         else:
-                            st.error(f"API Test Failed: {result.get('error', 'Unknown error')}")
+                            st.error(f"MCP Test Failed: {result.get('error', 'Unknown error')}")
                     except Exception as e:
-                        st.error(f"API Test Error: {str(e)}")
+                        st.error(f"MCP Test Error: {str(e)}")
     
     # Initialize demo_mode
     demo_mode = False
@@ -872,132 +860,82 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         else:
                             logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
                 
-                    # Check if this is a Braket-specific query or forced
-                    braket_keywords = ['braket', 'ghz', 'bell pair', 'ascii diagram', 'quantum device', 'braket mcp', 'qft']
-                    is_braket_query = any(keyword in query.lower() for keyword in braket_keywords)
-                
+                    # Simple framework-based routing - no complex detection needed
                     if show_debug and braket_mode == "Amazon Braket Framework" and debug_placeholder:
-                        debug_info = f"""📋 **Query Analysis:**
-- Braket keywords detected: {is_braket_query}
-- Braket mode: {braket_mode}
+                        debug_info = f"""📋 **Framework Selection:**
+- Selected Framework: {braket_mode}
 - Force Braket MCP: {force_braket_mcp}
 - Include MP data: {include_mp_data}
 - Agent type: {agent_type}"""
                         debug_placeholder.markdown(debug_info)
                 
-                    # Force Braket mode for pure algorithm queries
+                    # Use framework selection directly - no keyword detection
                     if braket_mode == "Amazon Braket Framework":
-                        is_braket_query = True
-                        force_braket_mcp = True
-                
-                    # Handle Braket-specific queries directly (either detected or forced)
-                    if (is_braket_query and braket_mode != "Qiskit Framework") or force_braket_mcp:
                         if not show_debug:  # Only show this if debug is off
-                            st.info("🔍 Detected Braket-specific query - using Braket MCP integration")
+                            st.info("⚛️ Using Braket Framework - simple quantum algorithms only")
                         
                         if show_debug and debug_placeholder:
-                            debug_placeholder.success("⚛️ **Braket MCP Route Selected** - Processing quantum algorithm query")
+                            debug_placeholder.success("⚛️ **Braket Framework Selected** - Processing with Braket MCP")
                         
-                        # Route to Strands supervisor for Braket handling
-                        if st.session_state.strands_supervisor:
-                            # Force Strands to handle as Braket query
-                            strands_result = st.session_state.strands_supervisor._handle_braket_query(query)
+                        # Get Braket MCP data based on query content
+                        braket_data = None
+                        
+                        if 'ghz' in query.lower():
+                            qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
+                            num_qubits = int(qubit_match.group(1)) if qubit_match else 3
+                            braket_data = braket_integration.create_ghz_circuit(num_qubits)
+                        elif 'bell' in query.lower():
+                            braket_data = braket_integration.create_bell_pair_circuit()
                             if show_debug and debug_placeholder:
-                                debug_placeholder.info(f"🔍 **Strands Braket Result:** {list(strands_result.keys()) if isinstance(strands_result, dict) else 'Not a dict'}")
-                                if 'braket_data' in strands_result:
-                                    debug_placeholder.success(f"✅ **Found braket_data in Strands result:** {type(strands_result['braket_data'])}")
-                                else:
-                                    debug_placeholder.warning(f"⚠️ **No braket_data in Strands result:** Available keys: {list(strands_result.keys())}")
-                            
-                            # Pass Strands Braket result to the selected model for enhanced response
-                            original_braket_data = getattr(model_instance, '_cached_braket_data', None)
-                            if 'braket_data' in strands_result:
-                                model_instance._cached_braket_data = strands_result['braket_data']
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.success(f"✅ **Cached Strands Braket data:** {list(strands_result['braket_data'].keys()) if isinstance(strands_result['braket_data'], dict) else 'Not a dict'}")
-                            else:
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.warning(f"⚠️ **No braket_data to cache from Strands**")
-                            
-                            response = model_instance.generate_response(
-                                query=query,
-                                temperature=temperature,
-                                max_tokens=max_tokens,
-                                top_p=top_p,
-                                include_mp_data=False,  # Don't mix with MP data for pure Braket queries
-                                show_debug=show_debug,
-                                braket_mode=braket_mode
-                            )
-                            
-                            # Add Braket data to response
-                            if 'braket_data' in strands_result:
-                                response["braket_data"] = strands_result['braket_data']
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.success(f"✅ **Extracted Braket data from Strands:** {list(strands_result['braket_data'].keys()) if isinstance(strands_result['braket_data'], dict) else 'Not a dict'}")
-                            
-                            # Restore original cached data
-                            model_instance._cached_braket_data = original_braket_data
-                        
+                                debug_placeholder.info(f"🔍 **Braket MCP Call:** Bell pair circuit")
+                        elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
+                            braket_data = braket_integration.list_braket_devices()
+                            if show_debug and debug_placeholder:
+                                debug_placeholder.info(f"🔍 **Braket MCP Call:** Device list")
                         else:
-                            # Get Braket MCP data for enhanced diagrams, then let LLM generate code
-                            braket_data = None
-                            
-                            if 'ghz' in query.lower():
-                                qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
-                                num_qubits = int(qubit_match.group(1)) if qubit_match else 3
-                                braket_data = braket_integration.create_ghz_circuit(num_qubits)
-                            elif 'bell' in query.lower():
-                                braket_data = braket_integration.create_bell_pair_circuit()
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.info(f"🔍 **Braket MCP Call:** Bell pair circuit - {braket_data}")
-                            elif 'device' in query.lower() and ('available' in query.lower() or 'status' in query.lower() or 'list' in query.lower()):
-                                braket_data = braket_integration.list_braket_devices()
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.info(f"🔍 **Braket MCP Call:** Device list - {braket_data}")
-                            else:
-                                # Default to Bell pair for general circuit requests
-                                braket_data = braket_integration.create_bell_pair_circuit()
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.info(f"🔍 **Braket MCP Call:** Default Bell pair - {braket_data}")
-                            
-                            # Debug: Show what we got from Braket MCP
+                            # Default to Bell pair for general circuit requests
+                            braket_data = braket_integration.create_bell_pair_circuit()
                             if show_debug and debug_placeholder:
-                                debug_placeholder.success(f"⚛️ **Braket MCP Result:** {type(braket_data)} - {list(braket_data.keys()) if isinstance(braket_data, dict) else 'Not a dict'}")
-                            
-                            # Cache Braket MCP data for the LLM to use
-                            if braket_data and "error" not in braket_data:
-                                model_instance._cached_braket_data = braket_data
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.success(f"✅ **Cached Braket Data:** {list(braket_data.keys())}")
-                            else:
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.error(f"❌ **Braket Data Issue:** {braket_data}")
-                            
-                            # Let LLM generate full response with Braket SDK code + MCP diagrams
-                            response = model_instance.generate_response(
-                                query=query,
-                                temperature=temperature,
-                                max_tokens=max_tokens,
-                                top_p=top_p,
-                                include_mp_data=False,  # Braket Framework doesn't use MP data
-                                show_debug=show_debug,
-                                braket_mode=braket_mode
-                            )
-                            
-                            # Add Braket MCP data to response for enhanced diagrams
-                            if braket_data and "error" not in braket_data:
-                                response["braket_data"] = braket_data
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.success(f"✅ **Added to Response:** braket_data with keys {list(braket_data.keys())}")
-                            else:
-                                if show_debug and debug_placeholder:
-                                    debug_placeholder.warning(f"⚠️ **Not Added to Response:** {braket_data}")
-                            
-                            # Clear cached data
-                            model_instance._cached_braket_data = None
+                                debug_placeholder.info(f"🔍 **Braket MCP Call:** Default Bell pair")
+                        
+                        # Debug: Show what we got from Braket MCP
+                        if show_debug and debug_placeholder:
+                            debug_placeholder.success(f"⚛️ **Braket MCP Result:** {type(braket_data)} - {list(braket_data.keys()) if isinstance(braket_data, dict) else 'Not a dict'}")
+                        
+                        # Cache Braket MCP data for the LLM to use
+                        if braket_data and "error" not in braket_data:
+                            model_instance._cached_braket_data = braket_data
+                            if show_debug and debug_placeholder:
+                                debug_placeholder.success(f"✅ **Cached Braket Data:** {list(braket_data.keys())}")
+                        else:
+                            if show_debug and debug_placeholder:
+                                debug_placeholder.error(f"❌ **Braket Data Issue:** {braket_data}")
+                        
+                        # Generate response with Braket SDK code + MCP diagrams
+                        response = model_instance.generate_response(
+                            query=query,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            top_p=top_p,
+                            include_mp_data=False,  # Braket Framework doesn't use MP data
+                            show_debug=show_debug,
+                            braket_mode=braket_mode
+                        )
+                        
+                        # Add Braket MCP data to response for enhanced diagrams
+                        if braket_data and "error" not in braket_data:
+                            response["braket_data"] = braket_data
+                            if show_debug and debug_placeholder:
+                                debug_placeholder.success(f"✅ **Added to Response:** braket_data with keys {list(braket_data.keys())}")
+                        else:
+                            if show_debug and debug_placeholder:
+                                debug_placeholder.warning(f"⚠️ **Not Added to Response:** {braket_data}")
+                        
+                        # Clear cached data
+                        model_instance._cached_braket_data = None
                     
-                    # Generate response with AWS Strands framework (non-Braket queries)
-                    elif st.session_state.strands_supervisor and not force_braket_mcp and braket_mode == "Qiskit Framework":
+                    # Generate response with AWS Strands framework (Qiskit Framework)
+                    elif braket_mode == "Qiskit Framework" and st.session_state.strands_supervisor:
                         if show_debug and debug_placeholder:
                             debug_placeholder.info("🧠 **AWS Strands Supervisor** - Analyzing query and dispatching to appropriate workflow...")
                         
@@ -1120,8 +1058,8 @@ Data: {str(mp_data)[:200]}..."""
                         model_instance._cached_strands_result = original_strands_result
                         
                     else:
-                        # Force MP data retrieval if requested and available
-                        if include_mp_data and st.session_state.mp_agent and isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
+                        # Force MP data retrieval if requested and available (now always uses Enhanced MCP)
+                        if include_mp_data and st.session_state.mp_agent:
                             try:
                                 # Smart material extraction from query
                                 material_query = None
@@ -1166,7 +1104,7 @@ Data: {str(mp_data)[:200]}..."""
                                 
                                 if material_query:
                                     if not show_debug:  # Only show this if debug is off
-                                        st.info(f"🔍 Retrieving {material_query} data from Materials Project MCP...")
+                                        st.info(f"🔍 Retrieving {material_query} data from Enhanced MCP server...")
                                     
                                     if show_debug and debug_placeholder:
                                         debug_placeholder.info(f"🔍 **MCP Tool 1:** Searching for material: {material_query}")
@@ -1235,7 +1173,7 @@ Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('cr
                                     if show_debug and debug_placeholder:
                                         debug_placeholder.info("🔍 **Material Detection:** No specific material found in query")
                             except Exception as e:
-                                st.error(f"❌ MP MCP call failed: {e}")
+                                st.error(f"❌ Enhanced MCP call failed: {e}")
                         
                         # Ensure debug callback is active for standard model generation
                         if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
@@ -1633,7 +1571,7 @@ Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('cr
                                 "Top P": top_p,
                                 "Response Length": len(response.get("text") or ""),
                                 "MP Data Included": include_mp_data,
-                                "MP Agent Type": "Enhanced MCP" if isinstance(st.session_state.mp_agent, EnhancedMCPAgent) else "Standard API" if st.session_state.mp_agent else "None"
+                                "MP Agent Type": "Enhanced MCP" if st.session_state.mp_agent else "None"
                             }
                             st.json(metadata)
                         
