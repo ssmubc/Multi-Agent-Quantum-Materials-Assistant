@@ -1,19 +1,46 @@
-from strands import Agent
-from strands_tools import use_aws, retrieve, batch
 import logging
 import json
 
 logger = logging.getLogger(__name__)
+
+# Mock classes for local testing
+class MockAgent:
+    def __init__(self, model=None, tools=None, system_prompt=None):
+        self.model = model
+        self.tools = tools
+        self.system_prompt = system_prompt
+    
+    def __call__(self, prompt):
+        return type('Response', (), {'text': f"Mock response to: {prompt[:50]}..."})() 
+
+# Set defaults
+Agent = MockAgent
+use_aws = None
+retrieve = None
+batch = None
+
+try:
+    from strands_agents import Agent as RealAgent
+    from strands_agents_tools import use_aws as real_use_aws, retrieve as real_retrieve, batch as real_batch
+    Agent = RealAgent
+    use_aws = real_use_aws
+    retrieve = real_retrieve
+    batch = real_batch
+except ImportError as e:
+    logger.warning(f"Strands not available locally: {e}")
 
 class StrandsAgenticLoop:
     """Enable agentic loops for iterative problem solving"""
     
     def __init__(self, mp_agent):
         self.mp_agent = mp_agent
-        self.agent = Agent(
-            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-            tools=[use_aws, retrieve, batch]
-        )
+        if use_aws:
+            self.agent = Agent(
+                model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                tools=[use_aws, retrieve, batch]
+            )
+        else:
+            self.agent = MockAgent()
         self.max_iterations = 5
         self.conversation_history = []
         
