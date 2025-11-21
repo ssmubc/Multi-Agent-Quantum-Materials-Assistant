@@ -1,5 +1,3 @@
-from strands import Agent
-from strands_tools import use_aws, retrieve
 import logging
 import json
 import re
@@ -9,15 +7,42 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 
 logger = logging.getLogger(__name__)
 
+# Mock classes for local testing
+class MockAgent:
+    def __init__(self, model=None, tools=None, system_prompt=None):
+        self.model = model
+        self.tools = tools
+        self.system_prompt = system_prompt
+    
+    def __call__(self, prompt):
+        return type('Response', (), {'text': f"Mock response to: {prompt[:50]}..."})() 
+
+# Set defaults
+Agent = MockAgent
+use_aws = None
+retrieve = None
+
+try:
+    from strands_agents import Agent as RealAgent
+    from strands_agents_tools import use_aws as real_use_aws, retrieve as real_retrieve
+    Agent = RealAgent
+    use_aws = real_use_aws
+    retrieve = real_retrieve
+except ImportError as e:
+    logger.warning(f"Strands not available locally: {e}")
+
 class StrandsStructureAgent:
     """Strands-based structure matching agent"""
     
     def __init__(self, mp_agent):
         self.mp_agent = mp_agent
-        self.agent = Agent(
-            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-            tools=[use_aws, retrieve]
-        )
+        if use_aws:
+            self.agent = Agent(
+                model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                tools=[use_aws, retrieve]
+            )
+        else:
+            self.agent = MockAgent()
         # Initialize pymatgen structure matcher (from original agent)
         self.matcher = StructureMatcher(ltol=0.2, stol=0.3, angle_tol=5)
     
