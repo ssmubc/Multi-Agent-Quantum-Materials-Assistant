@@ -605,7 +605,19 @@ Direct
         
         try:
             response = self.agent(complexity_check)
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            # Handle different response types
+            if hasattr(response, 'text'):
+                response_text = response.text
+            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                content = response.message.content
+                if isinstance(content, list) and len(content) > 0:
+                    response_text = content[0].get('text', str(response))
+                else:
+                    response_text = str(content)
+            else:
+                response_text = str(response)
+            
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 complexity = json.loads(json_match.group())
                 if complexity.get("complex", False):
