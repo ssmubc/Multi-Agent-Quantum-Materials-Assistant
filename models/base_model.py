@@ -421,7 +421,6 @@ print(f"Bell pair created for {pretty_formula} demonstration")
 '''
                 elif "ghz" in query_lower:
                     num_qubits = 3  # Default for GHZ
-                    import re
                     qubit_match = re.search(r'(\d+)\s*qubit', query_lower)
                     if qubit_match:
                         num_qubits = int(qubit_match.group(1))
