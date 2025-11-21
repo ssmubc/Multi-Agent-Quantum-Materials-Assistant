@@ -23,7 +23,6 @@ from models.deepseek_model import DeepSeekModel
 from models.claude_opus_model import ClaudeOpusModel
 from models.claude_sonnet_model import ClaudeSonnetModel
 
-from utils.materials_project_agent import MaterialsProjectAgent
 from utils.enhanced_mcp_client import EnhancedMCPAgent
 from utils.secrets_manager import get_mp_api_key
 from utils.logging_display import setup_logging_display, display_mcp_logs
