@@ -83,9 +83,9 @@ class StrandsSupervisorAgent:
     
     def process_query(self, query: str, formula: str = "") -> dict:
         """Process query using Strands agent with MCP integration"""
-        # Check for Braket-specific queries first
+        # Check for Braket-specific queries first (but NOT Materials Project VQE)
         if self._is_braket_query(query):
-            logger.info("⚛️ STRANDS: Braket query detected, routing to Braket MCP")
+            logger.info("⚛️ STRANDS: Pure Braket query detected, routing to Braket MCP")
             return self._handle_braket_query(query)
         
         # Extract formula from query if not provided
@@ -631,43 +631,92 @@ Direct
                 return result
             
             # Check for complex query indicators using Strands intelligence
-            # Quick check for simple material ID queries
+            # Check for specialized agent workflows
+            query_lower = query.lower()
+            
+            # DFT parameter extraction
+            dft_keywords = ['dft parameter', 'hopping parameter', 'hubbard u', 'tight binding', 'extract dft', 'dft calculation', 'hamiltonian']
+            if any(keyword in query_lower for keyword in dft_keywords):
+                logger.info("🔬 STRANDS: DFT parameter extraction detected, using specialized workflow")
+                result = self.process_complex_query(query)
+                result['workflow_used'] = 'DFT Parameter Extraction'
+                return result
+            
+            # Structure analysis (POSCAR matching)
+            structure_keywords = ['poscar', 'structure match', 'crystal structure', 'lattice parameter', 'space group', 'structure analysis']
+            if any(keyword in query_lower for keyword in structure_keywords):
+                logger.info("🔍 STRANDS: Structure analysis detected, using specialized workflow")
+                result = self.process_complex_query(query)
+                result['workflow_used'] = 'Structure Analysis'
+                return result
+            
+            # Multi-material comparison
+            comparison_keywords = ['compare', 'versus', 'vs', 'difference between', 'multiple materials', 'batch analysis']
+            if any(keyword in query_lower for keyword in comparison_keywords):
+                logger.info("🔄 STRANDS: Multi-material comparison detected, using agentic loop")
+                result = self.process_complex_query(query)
+                result['workflow_used'] = 'Multi-Material Analysis'
+                return result
+            
+            # Quick check for simple material ID queries (only if not DFT-related)
             if re.search(r'mp-\d+', query.lower()):
                 logger.info("📝 STRANDS: Material ID detected, using simple workflow")
                 result = self.process_query(query, "")
                 result['workflow_used'] = 'Simple Query'
                 return result
             
-            complexity_prompt = f"""Analyze this query for complexity: "{query}"
+            complexity_prompt = f"""Analyze this query and determine which specialized agent to use: "{query}"
             
-            Complex indicators:
-            - Multiple materials or comparisons
-            - Optimization or parameter tuning requests  
-            - Multi-step analysis requirements
-            - "compare", "optimize", "find best", "analyze multiple"
+            Available specialized agents:
+            - DFT Agent: Extract hopping parameters, Hubbard U values, tight-binding models
+            - Structure Agent: POSCAR analysis, structure matching, crystal analysis
+            - Agentic Loop: Multi-material comparisons, optimization, iterative analysis
+            - Simple Query: Basic material lookup, single VQE circuits
             
-            Simple indicators:
-            - Single material requests (mp-149, TiO2, etc.)
-            - VQE ansatz generation for one material
-            - POSCAR format requests
-            - Single structure analysis
+            Keywords for each agent:
+            - DFT: "dft parameter", "hopping", "hubbard u", "tight binding", "hamiltonian"
+            - Structure: "poscar", "structure match", "crystal structure", "lattice"
+            - Agentic: "compare", "optimize", "multiple materials", "batch"
+            - Simple: material IDs (mp-149), basic searches
             
-            Return JSON: {{"complex": bool, "reasoning": "string"}}"""
+            Return JSON: {{"agent_type": "dft|structure|agentic|simple", "reasoning": "string"}}"""
             
             logger.info("🧠 STRANDS: Calling Claude Sonnet 4.5 for complexity analysis...")
             try:
                 response = self.agent(complexity_prompt)
-                response_text = getattr(response, 'text', str(response))
+                # Handle different response types
+                if hasattr(response, 'text'):
+                    response_text = response.text
+                elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                    content = response.message.content
+                    if isinstance(content, list) and len(content) > 0:
+                        response_text = content[0].get('text', str(response))
+                    else:
+                        response_text = str(content)
+                else:
+                    response_text = str(response)
                 logger.info(f"✅ STRANDS: Claude response received: {len(response_text)} chars")
                 
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
-                    complexity = json.loads(json_match.group())
-                    logger.info(f"📊 STRANDS: Complexity analysis: {complexity}")
-                    if complexity.get("complex", False):
-                        logger.info(f"🔄 STRANDS: Complex query detected: {complexity.get('reasoning')}")
+                    analysis = json.loads(json_match.group())
+                    logger.info(f"📊 STRANDS: Agent analysis: {analysis}")
+                    agent_type = analysis.get("agent_type", "simple")
+                    
+                    if agent_type == "dft":
+                        logger.info(f"🔬 STRANDS: DFT agent selected: {analysis.get('reasoning')}")
+                        result = self._execute_dft_workflow(query)
+                        result['workflow_used'] = 'DFT Parameter Extraction'
+                        return result
+                    elif agent_type == "structure":
+                        logger.info(f"🏗️ STRANDS: Structure agent selected: {analysis.get('reasoning')}")
+                        result = self._execute_structure_workflow(query)
+                        result['workflow_used'] = 'Structure Analysis'
+                        return result
+                    elif agent_type == "agentic":
+                        logger.info(f"🔄 STRANDS: Agentic loop selected: {analysis.get('reasoning')}")
                         result = self.process_complex_query(query)
-                        result['workflow_used'] = 'Complex Query (Iterative)'
+                        result['workflow_used'] = 'Multi-Agent Analysis'
                         return result
                 else:
                     logger.warning("⚠️ STRANDS: No JSON found in Claude response")
@@ -739,7 +788,7 @@ Direct
             return "Si"
     
     def _is_braket_query(self, query: str) -> bool:
-        """Detect if query is Braket-specific"""
+        """Detect if query is Braket-specific (NOT Materials Project)"""
         query_lower = query.lower()
         
         # High priority Braket indicators (always route to Braket)
@@ -749,39 +798,31 @@ Direct
             'sv1', 'dm1', 'braket server'
         ]
         
-        # VQE and quantum algorithm keywords
-        vqe_keywords = [
-            'vqe', 'variational quantum eigensolver',
-            'quantum circuit for', 'ansatz', 'hamiltonian simulation'
-        ]
-        
-        # Circuit-specific keywords (route to Braket if combined with circuit terms)
-        circuit_keywords = [
+        # Pure algorithm keywords (no materials)
+        pure_algorithm_keywords = [
             'bell pair', 'bell state', 'bell circuit',
             'ghz state', 'ghz circuit', 'ghz',
             'ascii diagram', 'ascii circuit', 'circuit diagram',
-            'quantum fourier transform', 'qft circuit',
-            'run circuit', 'execute circuit', 'quantum task'
+            'quantum fourier transform', 'qft circuit'
         ]
         
         # Check high priority first
         if any(keyword in query_lower for keyword in high_priority_keywords):
             return True
         
-        # Check VQE keywords
-        if any(keyword in query_lower for keyword in vqe_keywords):
+        # Check pure algorithm keywords (no materials mentioned)
+        if any(keyword in query_lower for keyword in pure_algorithm_keywords):
             return True
         
-        # Check for material + circuit combinations
-        materials = ['graphene', 'h2', 'hydrogen', 'tio2', 'sio2', 'diamond', 'silicon']
-        if any(material in query_lower for material in materials) and 'circuit' in query_lower:
-            return True
-        
-        # Check circuit keywords combined with circuit/quantum terms
-        circuit_terms = ['circuit', 'quantum', 'entanglement', 'superposition']
-        if any(keyword in query_lower for keyword in circuit_keywords):
-            if any(term in query_lower for term in circuit_terms):
-                return True
+        # IMPORTANT: VQE + Materials Project should NOT go to Braket
+        # Only route VQE to Braket if NO materials are mentioned
+        if 'vqe' in query_lower or 'variational quantum eigensolver' in query_lower:
+            # Check if Materials Project materials are mentioned
+            mp_materials = ['graphene', 'materials project', 'mp-', 'tio2', 'sio2', 'diamond', 'silicon', 'using materials project']
+            if any(material in query_lower for material in mp_materials):
+                return False  # Route to Materials Project, not Braket
+            else:
+                return True   # Pure VQE without materials -> Braket
         
         return False
     
@@ -796,18 +837,18 @@ Direct
         query_lower = query.lower()
         
         try:
-            # VQE circuits with materials
+            # VQE circuits (only for pure algorithm requests, not Materials Project)
             if 'vqe' in query_lower or ('variational' in query_lower and 'quantum' in query_lower):
-                logger.info("⚙️ STRANDS: Creating VQE circuit with material data")
-                # Extract material from query or use default
-                material_data = self._extract_material_context(query)
+                logger.info("⚙️ STRANDS: Creating pure VQE circuit (no Materials Project data)")
+                # Use simple material data for pure algorithm
+                material_data = {'formula': 'H2', 'band_gap': 8.0, 'formation_energy': 0.0}
                 result = braket_integration.create_vqe_circuit(material_data)
                 return {
                     "status": "success",
                     "braket_data": result,
                     "mcp_actions": ["create_vqe_circuit"],
                     "workflow_used": "Braket MCP",
-                    "reasoning": f"VQE circuit generation for {material_data.get('formula', 'material')} using Amazon Braket MCP"
+                    "reasoning": "Pure VQE circuit generation using Amazon Braket MCP (no Materials Project data)"
                 }
             
             # Bell pair circuits
@@ -850,31 +891,25 @@ Direct
                     "reasoning": "Amazon Braket device listing and status check"
                 }
             
-            # Material-specific circuit creation
-            elif ('circuit' in query_lower and any(material in query_lower for material in ['graphene', 'h2', 'tio2', 'sio2', 'diamond'])):
-                logger.info("🧬 STRANDS: Creating material-specific VQE circuit")
-                material_data = self._extract_material_context(query)
-                result = braket_integration.create_vqe_circuit(material_data)
-                return {
-                    "status": "success",
-                    "braket_data": result,
-                    "mcp_actions": ["create_vqe_circuit"],
-                    "workflow_used": "Braket MCP",
-                    "reasoning": f"Material-specific VQE circuit for {material_data.get('formula', 'material')} using Amazon Braket MCP"
-                }
-            
-            # Custom circuit creation
+            # Simple circuit creation (no materials)
             elif 'circuit' in query_lower and ('create' in query_lower or 'build' in query_lower or 'generate' in query_lower):
-                logger.info("🔧 STRANDS: Creating custom circuit with Braket MCP")
-                # Default to Bell pair for custom requests
-                result = braket_integration.create_bell_pair_circuit()
-                return {
-                    "status": "success",
-                    "braket_data": result,
-                    "mcp_actions": ["create_custom_circuit"],
-                    "workflow_used": "Braket MCP",
-                    "reasoning": "Custom quantum circuit generation using Amazon Braket MCP"
-                }
+                # Only handle if no Materials Project materials mentioned
+                mp_materials = ['graphene', 'materials project', 'mp-', 'tio2', 'sio2', 'diamond', 'silicon']
+                if not any(material in query_lower for material in mp_materials):
+                    logger.info("🔧 STRANDS: Creating simple circuit with Braket MCP")
+                    result = braket_integration.create_bell_pair_circuit()
+                    return {
+                        "status": "success",
+                        "braket_data": result,
+                        "mcp_actions": ["create_simple_circuit"],
+                        "workflow_used": "Braket MCP",
+                        "reasoning": "Simple quantum circuit generation using Amazon Braket MCP"
+                    }
+                else:
+                    # This should go to Materials Project, not Braket
+                    return {"status": "error", "message": "Material-specific circuits should use Materials Project workflow"}
+            
+
             
             # General Braket status
             else:
@@ -891,6 +926,85 @@ Direct
         except Exception as e:
             logger.error(f"💥 STRANDS: Braket query failed: {e}")
             return {"status": "error", "message": f"Braket query failed: {str(e)}"}
+    
+    def _execute_dft_workflow(self, query: str) -> dict:
+        """Execute DFT parameter extraction workflow"""
+        try:
+            # Extract material ID from query
+            material_id = self._extract_formula_from_query(query)
+            
+            # Get MP data first
+            mcp_wrapper = get_mcp_wrapper()
+            if mcp_wrapper:
+                search_result = mcp_wrapper.search_material(material_id)
+                if search_result["status"] == "success":
+                    # Use DFT agent to extract parameters
+                    dft_result = self.dft_agent.extract_dft_parameters(material_id, search_result["data"])
+                    
+                    # Generate Hamiltonian code if requested
+                    if "hamiltonian" in query.lower() or "tight binding" in query.lower():
+                        hamiltonian_code = self.dft_agent.get_tight_binding_hamiltonian(material_id, dft_result)
+                        dft_result["hamiltonian_code"] = hamiltonian_code
+                    
+                    return {
+                        "status": "success",
+                        "mp_data": search_result["data"],
+                        "dft_parameters": dft_result,
+                        "mcp_actions": ["search_materials_by_formula", "extract_dft_parameters"]
+                    }
+            
+            return {"status": "error", "message": "Failed to get material data"}
+        except Exception as e:
+            logger.error(f"💥 STRANDS: DFT workflow failed: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    def _execute_structure_workflow(self, query: str) -> dict:
+        """Execute structure analysis workflow"""
+        try:
+            # Check if POSCAR is provided in query
+            if "poscar" in query.lower():
+                # Extract POSCAR from query or use example
+                poscar_text = self._extract_poscar_from_query(query)
+                formula = self._extract_formula_from_poscar(poscar_text)
+                
+                # Use structure agent for matching
+                match_result = self.structure_agent.match_poscar_to_mp(poscar_text, formula)
+                
+                return {
+                    "status": "success",
+                    "structure_analysis": match_result,
+                    "mcp_actions": ["poscar_structure_matching"]
+                }
+            else:
+                # General structure analysis
+                material_id = self._extract_formula_from_query(query)
+                mcp_wrapper = get_mcp_wrapper()
+                if mcp_wrapper:
+                    search_result = mcp_wrapper.search_material(material_id)
+                    return {
+                        "status": "success",
+                        "mp_data": search_result["data"],
+                        "mcp_actions": ["search_materials_by_formula"]
+                    }
+            
+            return {"status": "error", "message": "No structure data found"}
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Structure workflow failed: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    def _extract_poscar_from_query(self, query: str) -> str:
+        """Extract POSCAR text from query or return example"""
+        # Simple POSCAR example for testing
+        return """Si2
+1.0
+   3.3335729999999999    0.0000000000000000    1.9246390000000000
+   1.1111910000000000    3.1429239999999998    1.9246390000000000
+   0.0000000000000000    0.0000000000000000    3.8492780000000000
+Si
+2
+Direct
+0.0000000000000000  0.0000000000000000  0.0000000000000000
+0.2500000000000000  0.2500000000000000  0.2500000000000000"""
     
     def _extract_material_context(self, query: str) -> Dict[str, Any]:
         """Extract material information from query for Braket circuit generation."""
