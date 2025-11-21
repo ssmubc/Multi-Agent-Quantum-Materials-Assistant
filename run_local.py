@@ -114,8 +114,10 @@ print(f"MCP Python: {os.environ.get('MCP_PYTHON_PATH', 'Not set')}")
 
 # Setup local MCP environment with optimized settings
 try:
-    from utils.local_mcp_wrapper import initialize_local_mcp
-    initialize_local_mcp()
+    # Inline MCP initialization (replacing local_mcp_wrapper)
+    os.environ['MCP_TIMEOUT'] = '120'
+    os.environ['MCP_MAX_RETRIES'] = '3'
+    os.environ['MCP_BATCH_SIZE'] = '5'
     print("[OK] Local MCP environment configured with 120s timeout")
 except Exception as e:
     print(f"[WARN] MCP setup warning: {e}")
