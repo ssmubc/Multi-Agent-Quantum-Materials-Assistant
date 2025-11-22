@@ -12,6 +12,28 @@
 2. **AWS CLI** installed and configured
 3. **EB CLI** installed (`pip install awsebcli`)
 4. **Docker** installed locally (optional, for testing)
+5. **Materials Project API Key** from [materialsproject.org](https://materialsproject.org/)
+
+## Setup Utilities
+
+**Before deployment, run setup utilities from your local machine:**
+
+### Required for Deployment
+```bash
+# Store Materials Project API key in AWS Secrets Manager (REQUIRED)
+python setup/setup_secrets.py
+```
+
+### Optional for Local Development
+```bash
+# Install Braket integration (NOT needed for EB deployment)
+python setup/install_braket.py
+```
+
+**Important Notes:**
+- `setup_secrets.py`: **REQUIRED** - Must be run once from local machine before deployment
+- `install_braket.py`: **NOT NEEDED** for EB deployment (dependencies handled by requirements.txt)
+- The deployed app reads API key from AWS Secrets Manager automatically
 
 ## Deployment Steps
 
@@ -64,14 +86,21 @@ Create an IAM role with these permissions (or use existing `aws-elasticbeanstalk
 
 ### 2. Store Materials Project API Key
 
-Store your Materials Project API key in AWS Secrets Manager:
+**Option A: Using Setup Utility (Recommended)**
+```bash
+# Run from project root - handles secret creation automatically
+python setup/setup_secrets.py
+```
 
+**Option B: Manual AWS CLI**
 ```bash
 aws secretsmanager create-secret \
     --name "materials-project/api-key" \
     --description "Materials Project API Key for Quantum Matter App" \
     --secret-string '{"MP_API_KEY":"your_api_key_here"}'
 ```
+
+**Note:** The setup utility is recommended as it handles secret format and testing automatically.
 
 ### 3. Deploy to Elastic Beanstalk
 

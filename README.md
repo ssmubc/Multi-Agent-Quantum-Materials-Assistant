@@ -65,9 +65,14 @@ You need AWS credentials configured with access to Amazon Bedrock. The models ar
 ```
 
 ### Materials Project API Key
-Get your free API key from [Materials Project](https://materialsproject.org/) and either:
-1. Store it in AWS Secrets Manager (recommended)
-2. Enter it manually in the app interface
+Get your free API key from [Materials Project](https://materialsproject.org/) and store it using the setup utility:
+
+```bash
+# Recommended: Use setup utility to store API key securely
+python setup/setup_secrets.py
+```
+
+Alternatively, enter it manually in the app interface.
 
 ## Installation
 
@@ -96,10 +101,13 @@ export AWS_DEFAULT_REGION=us-east-1
 export AWS_PROFILE=your_profile_name
 ```
 
-4. **Store Materials Project API Key (Optional):**
-```python
-from utils.secrets_manager import store_mp_api_key
-store_mp_api_key("your_mp_api_key_here")
+4. **Configure API Keys and Dependencies:**
+```bash
+# Store Materials Project API key (recommended)
+python setup/setup_secrets.py
+
+# Install Braket integration (optional, for quantum circuit features)
+python setup/install_braket.py
 ```
 
 ## Usage
@@ -237,18 +245,21 @@ For web deployment without requiring users to clone the repository:
 
 ### Quick Deploy
 ```bash
-# 1. Install EB CLI
+# 1. Configure Materials Project API key (REQUIRED)
+python setup/setup_secrets.py
+
+# 2. Install EB CLI
 pip install awsebcli
 
-# 2. Initialize and deploy
+# 3. Initialize and deploy
 eb init quantum-matter-app --platform docker --region us-east-1
 eb create quantum-matter-env --instance-types t3.medium
 eb deploy
 
-# 3. Configure SSL Certificate (Optional)
+# 4. Configure SSL Certificate (Optional)
 eb setenv SSL_CERT_ARN=your_certificate_arn_here
 
-# 4. Get URL
+# 5. Get URL
 eb status
 ```
 
