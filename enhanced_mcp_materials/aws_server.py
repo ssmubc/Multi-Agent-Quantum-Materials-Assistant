@@ -79,7 +79,9 @@ def get_poscar_str(structure) -> str:
 def generate_structure_id(material_id: str = None, structure = None) -> str:
     """Generate unique structure ID"""
     if material_id:
-        return f"mp_{material_id}"
+        # Ensure consistent format - remove mp- prefix if present, then add mp-
+        clean_id = material_id.replace('mp-', '')
+        return f"mp-{clean_id}"
     else:
         import uuid
         content = str(structure) if structure else str(uuid.uuid4())
@@ -171,10 +173,21 @@ def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
         from mp_api.client import MPRester
         
         with MPRester(api_key) as mpr:
-            results = mpr.materials.summary.search(
-                formula=chemical_formula, 
-                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
-            )
+            # Try new API fields first, fallback to old ones
+            try:
+                results = mpr.materials.summary.search(
+                    formula=chemical_formula, 
+                    fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom"]
+                )
+            except Exception as api_error:
+                logger.warning(f"New API failed, trying legacy fields: {api_error}")
+                try:
+                    results = mpr.materials.summary.search(
+                        formula=chemical_formula
+                    )
+                except Exception as legacy_error:
+                    logger.error(f"Both API attempts failed: {legacy_error}")
+                    return [TextContent(type="text", text=f"API Error: {str(legacy_error)}")]
             
             if not results:
                 return [TextContent(type="text", text=f"No materials found for formula: {chemical_formula}")]
@@ -216,24 +229,41 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
         return [TextContent(type="text", text="Error: MP_API_KEY environment variable not set")]
     
     try:
+        # Ensure material_id is properly formatted
+        if not material_id.startswith('mp-'):
+            material_id = f"mp-{material_id}"
+        
+        logger.info(f"🔍 SELECT_MATERIAL: Searching for {material_id}")
+        
         from mp_api.client import MPRester
         
         with MPRester(api_key) as mpr:
-            # Get structure first
-            structure = mpr.get_structure_by_material_id(material_id)
-            if not structure:
-                return [TextContent(type="text", text=f"Material not found: {material_id}")]
+            # Try to get structure first
+            try:
+                structure = mpr.get_structure_by_material_id(material_id)
+                if not structure:
+                    logger.error(f"❌ SELECT_MATERIAL: No structure found for {material_id}")
+                    return [TextContent(type="text", text=f"Material not found: {material_id}")]
+                logger.info(f"✅ SELECT_MATERIAL: Found structure for {material_id} with {len(structure)} atoms")
+            except Exception as struct_error:
+                logger.error(f"❌ SELECT_MATERIAL: Structure lookup failed for {material_id}: {struct_error}")
+                return [TextContent(type="text", text=f"Error getting structure for {material_id}: {struct_error}")]
             
-            # Ensure proper Structure object
-            structure = ensure_structure_object(structure)
-            if not structure:
-                return [TextContent(type="text", text=f"Invalid structure format for: {material_id}")]
-            
-            # Get material properties
-            material_data = mpr.materials.summary.search(
-                material_ids=[material_id],
-                fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom", "symmetry"]
-            )
+            # Get material properties with API compatibility
+            try:
+                material_data = mpr.materials.summary.search(
+                    material_ids=[material_id],
+                    fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom"]
+                )
+                logger.info(f"✅ SELECT_MATERIAL: Found properties for {material_id}")
+            except Exception as props_error:
+                logger.warning(f"⚠️ SELECT_MATERIAL: Properties lookup failed, trying without fields: {props_error}")
+                try:
+                    material_data = mpr.materials.summary.search(material_ids=[material_id])
+                    logger.info(f"✅ SELECT_MATERIAL: Found properties for {material_id} (no fields)")
+                except Exception as fallback_error:
+                    logger.warning(f"⚠️ SELECT_MATERIAL: All properties lookup failed for {material_id}: {fallback_error}")
+                    material_data = []
             
             # Use enhanced description
             structure_id = generate_structure_id(material_id=material_id)
@@ -243,9 +273,8 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
             structure_data = StructureData(material_id=material_id, structure=structure)
             structure_storage[structure_data.structure_id] = structure_data
             
-            # Log storage for debugging
-            logger.info(f"Stored structure {structure_data.structure_id} for material {material_id}")
-            logger.info(f"Total structures in storage: {len(structure_storage)}")
+            logger.info(f"💾 SELECT_MATERIAL: Stored {material_id} as {structure_id} in storage")
+            logger.info(f"💾 SELECT_MATERIAL: Storage now has {len(structure_storage)} items: {list(structure_storage.keys())}")
             
             structure_uri = f"structure://{structure_data.structure_id}"
             
@@ -270,6 +299,9 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
         Structure file content as string
     """
     structure_id = structure_uri.replace("structure://", "")
+    
+    logger.info(f"🔍 GET_STRUCTURE: Looking for {structure_id} in storage with {len(structure_storage)} items")
+    logger.info(f"🔍 GET_STRUCTURE: Available keys: {list(structure_storage.keys())}")
     
     if structure_id not in structure_storage:
         # Try to reload from Materials Project if it's an mp_ ID
@@ -391,42 +423,78 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
     """
     structure_id = structure_uri.replace("structure://", "")
     
+    logger.info(f"🎨 AWS PLOT_STRUCTURE: Starting visualization for {structure_id}")
+    
     if structure_id not in structure_storage:
+        logger.error(f"❌ AWS PLOT_STRUCTURE: Structure {structure_id} not found in storage")
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     structure_data = structure_storage[structure_id]
     
     if not structure_data.structure:
+        logger.error(f"❌ AWS PLOT_STRUCTURE: No structure data for {structure_id}")
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     try:
-        # Try enhanced plotting first (use enhanced structure if available)
+        logger.info(f"🎨 AWS PLOT_STRUCTURE: Using advanced plotly visualization for {len(structure_data.structure)} atoms")
+        
+        # Try simple plotly visualization without crystal_toolkit
         try:
-            if structure_data.enhanced:
-                # Use enhanced structure data plotting
-                img_base64 = structure_data.enhanced.plot_structure_ct(duplication)
-                if img_base64:
-                    logger.info(f"Enhanced structure data plot generated for {structure_uri}")
-                    return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
+            import plotly.graph_objects as go
+            import plotly.io as pio
             
-            # Fallback to enhanced plot helper
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
-            from enhanced_plot_helper import plot_structure_enhanced
+            fig = go.Figure()
+            structure = structure_data.structure
             
-            img_base64 = plot_structure_enhanced(structure_data.structure, duplication)
+            # Plot atoms as spheres
+            for i, site in enumerate(structure):
+                coords = site.coords  # Use cartesian coordinates
+                fig.add_trace(go.Scatter3d(
+                    x=[coords[0]], y=[coords[1]], z=[coords[2]],
+                    mode='markers',
+                    marker=dict(size=10, color=f'rgb({(i*50)%255},{(i*100)%255},{(i*150)%255})'),
+                    name=str(site.specie),
+                    text=f'{site.specie} at ({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})'
+                ))
             
-            if img_base64:
-                logger.info(f"Enhanced plot helper generated for {structure_uri}")
-                return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
-            else:
-                logger.warning("Enhanced plotting returned empty result, using fallback")
-                
-        except ImportError as ie:
-            logger.warning(f"Enhanced plotting not available: {ie}, using fallback")
-        except Exception as ee:
-            logger.warning(f"Enhanced plotting failed: {ee}, using fallback")
+            # Add unit cell edges
+            lattice = structure.lattice
+            vertices = [
+                [0, 0, 0], lattice.matrix[0], lattice.matrix[0] + lattice.matrix[1], lattice.matrix[1],
+                lattice.matrix[2], lattice.matrix[0] + lattice.matrix[2], 
+                lattice.matrix[0] + lattice.matrix[1] + lattice.matrix[2], lattice.matrix[1] + lattice.matrix[2]
+            ]
+            
+            # Draw unit cell edges
+            edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0],  # bottom face
+                [4, 5], [5, 6], [6, 7], [7, 4],  # top face
+                [0, 4], [1, 5], [2, 6], [3, 7]   # vertical edges
+            ]
+            
+            for edge in edges:
+                start, end = vertices[edge[0]], vertices[edge[1]]
+                fig.add_trace(go.Scatter3d(
+                    x=[start[0], end[0]], y=[start[1], end[1]], z=[start[2], end[2]],
+                    mode='lines', line=dict(color='black', width=2),
+                    showlegend=False, hoverinfo='skip'
+                ))
+            
+            fig.update_layout(
+                title=f'Crystal Structure: {structure.composition.reduced_formula}',
+                scene=dict(aspectmode='cube'),
+                width=800, height=600
+            )
+            
+            # Convert plotly figure to PNG
+            img_bytes = pio.to_image(fig, format='png', width=800, height=600, scale=2)
+            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            
+            logger.info(f"✅ AWS PLOT_STRUCTURE: Successfully created plotly visualization ({len(img_base64)} chars)")
+            return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
+            
+        except Exception as plotly_error:
+            logger.warning(f"⚠️ AWS PLOT_STRUCTURE: Simple plotly failed ({plotly_error}), falling back to matplotlib")
         
         # Fallback to matplotlib plotting
         import matplotlib.pyplot as plt
@@ -444,7 +512,6 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
                       s=100, label=str(site.specie), alpha=0.8)
         
         # Plot unit cell
-        lattice = structure.lattice
         vertices = [
             [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],  # bottom face
             [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]   # top face
@@ -475,10 +542,11 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
         img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         plt.close()
         
+        logger.info(f"✅ AWS PLOT_STRUCTURE: Matplotlib fallback successful ({len(img_base64)} chars)")
         return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
         
     except Exception as e:
-        logger.error(f"Error plotting structure: {e}")
+        logger.error(f"❌ AWS PLOT_STRUCTURE: Both plotly and matplotlib failed: {e}")
         return [ImageContent(type="image", data="", mimeType="image/png")]
 
 @mcp.tool()
