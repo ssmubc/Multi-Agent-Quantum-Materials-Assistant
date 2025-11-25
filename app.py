@@ -11,7 +11,7 @@ import base64
 from io import BytesIO
 
 # Import authentication
-from auth_module import require_auth
+from config.auth_module import require_auth
 
 # Import our model classes
 from models.nova_pro_model import NovaProModel
@@ -207,13 +207,36 @@ def setup_materials_project():
         )
     
     if mp_api_key:
-        # Check if MCP agent already exists with same API key
+        # Enhanced caching with server health validation and call count tracking
         if (hasattr(st.session_state, 'mp_agent') and 
             st.session_state.mp_agent and 
             hasattr(st.session_state, 'mp_api_key_hash') and
             st.session_state.mp_api_key_hash == hash(mp_api_key)):
-            st.sidebar.success("✅ Enhanced MCP server already running (cached)")
-            return True
+            
+            # Verify the cached agent is still healthy and not overloaded
+            try:
+                agent_client = st.session_state.mp_agent.client
+                is_healthy = agent_client._is_server_healthy()
+                call_count = getattr(agent_client, 'call_count', 0)
+                consecutive_failures = getattr(agent_client, 'consecutive_failures', 0)
+                
+                # Check multiple health indicators
+                if (is_healthy and 
+                    call_count < agent_client.max_calls_before_restart and 
+                    consecutive_failures < agent_client.max_consecutive_failures):
+                    st.sidebar.success(f"✅ Enhanced MCP server healthy (cached)")
+                    return True
+                else:
+                    logger.warning(f"⚠️ STREAMLIT: MCP agent needs refresh - healthy: {is_healthy}, calls: {call_count}, failures: {consecutive_failures}")
+                    # Force cleanup of old agent
+                    try:
+                        agent_client.stop_server()
+                    except:
+                        pass
+                    st.session_state.mp_agent = None
+            except Exception as health_check_error:
+                logger.warning(f"⚠️ STREAMLIT: Health check failed, creating new agent: {health_check_error}")
+                st.session_state.mp_agent = None
         
         try:
             # Create new MCP agent only if needed
@@ -1126,7 +1149,7 @@ Data: {str(mp_data)[:200]}..."""
 
 📋 **Raw MCP response:** 2 items received
 
-🔗 **Structure URI:** structure://mp_{material_id.replace('mp-', '') if material_id.startswith('mp-') else material_id}
+🔗 **Structure URI:** structure://{material_id}
 
 🔍 **Raw MCP Description:** Structure Information [ENHANCED]
 
@@ -1144,7 +1167,7 @@ Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('cr
 
 📊 **Parsed structured data:** ['material_id', 'structure_uri', 'source', 'formula', 'band_gap', 'formation_energy', 'crystal_system']
 
-🔍 **MCP Tool 3:** Getting POSCAR data for structure://mp_{material_id.replace('mp-', '') if material_id.startswith('mp-') else material_id}
+🔍 **MCP Tool 3:** Getting POSCAR data for structure://{material_id}
 
 ⏰ **Timeout protection:** 60 second limit for POSCAR generation
 
