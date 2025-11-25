@@ -1,34 +1,56 @@
 # Quantum Matter LLM Testing Platform
 
-## Credits
+This project harnesses generative AI on AWS Cloud Infrastructure to enable quantum computing and materials science research through intelligent Large Language Model interactions. The platform integrates Materials Project data, Strands agentic workflows, and Amazon Braket quantum computing services to create comprehensive quantum simulations, generate VQE circuits, and analyze material properties with real-time MCP (Model Context Protocol) integration for enhanced accuracy and reliability.
 
-This application was architected and developed was developed by [Sharon Marfatia](https://www.linkedin.com/in/sharon-cs/). Thanks to the UBC Cloud Innovation Centre Technical and Project Management teams for their guidance and support.
+| Index | Description |
+|-------|-------------|
+| [High Level Architecture](docs/architecture.md) | High level overview illustrating component interactions |
+| [Deployment Guide](docs/deployment-guide.md) | How to deploy the project to AWS Elastic Beanstalk |
+| [User Guide](docs/user-guide.md) | The working solution and interface guide |
+| [Agentic Architecture](docs/agentic-architecture.md) | Detailed documentation on Strands agentic workflows |
+| [Braket Integration](docs/braket-integration.md) | Amazon Braket quantum computing integration |
+| [Troubleshooting Guide](#troubleshooting) | Documentation on how to troubleshoot common issues |
+| [Credits](#credits) | Meet the team behind the solution |
+| [License](#license) | License details |
 
-## About
-A Streamlit application for testing and comparing different Large Language Models (LLMs) for quantum computing and materials science applications.
+## High-Level Architecture
+
+The platform utilizes a sophisticated multi-agent architecture combining AWS Bedrock LLMs, Materials Project MCP servers, and Strands agentic workflows for intelligent quantum materials analysis.
 
 
 ## Features
 
-- **6 LLM Models Support:**
+- **8 Advanced LLM Models:**
   - **Nova Pro** (us-east-1) - Amazon's latest multimodal model
   - **Llama 4 Scout 17B** (us-east-1) - Meta's latest instruction-tuned model  
   - **Llama 3 70B** (us-west-2) - Meta's powerful 70B parameter model
-  - **OpenAI GPT OSS** (us-west-2) - OpenAI's open-source model
+  - **Claude Sonnet 4.5** (us-east-1) - Anthropic's advanced reasoning model
+  - **Claude Opus 4.1** (us-east-1) - Anthropic's most capable model
+  - **OpenAI OSS-120B** (us-west-2) - OpenAI's open-source model
   - **Qwen 3-32B** (us-east-1) - Alibaba's advanced reasoning model
   - **DeepSeek R1** (us-east-1) - DeepSeek's reasoning-focused model
 
-- **Materials Project Integration:**
+- **Intelligent Materials Project Integration:**
+  - Real-time MCP server with auto-recovery
   - Automatic material property lookup
-  - Real molecular geometries
+  - Real molecular geometries and crystal structures
   - Band gap and formation energy data
-  - AWS Secrets Manager integration for API keys
+  - AWS Secrets Manager integration for secure API keys
 
-- **Quantum Computing Code Generation:**
+- **Advanced Quantum Computing Capabilities:**
   - VQE ansatz generation (UCCSD, Hardware-Efficient)
-  - Qiskit circuit construction
-  - Materials Hamiltonian modeling
-  - Multiple qubit mapping strategies
+  - Qiskit and Amazon Braket circuit construction
+  - Materials Hamiltonian modeling with DFT parameters
+  - Multiple qubit mapping strategies (Jordan-Wigner, Parity)
+  - Moire bilayer structure generation
+  - 3D crystal structure visualization
+
+- **Strands Agentic Workflows:**
+  - Multi-material comparison analysis
+  - Intelligent workflow dispatch
+  - DFT parameter extraction
+  - Iterative problem solving
+  - POSCAR structure analysis
 
 ## Prerequisites
 
@@ -89,16 +111,11 @@ pip install -r requirements.txt
 
 3. **Configure AWS credentials:**
 ```bash
-# Option 1: AWS CLI
-aws configure
+# Configure AWS SSO (recommended)
+aws configure sso
 
-# Option 2: Environment variables
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
-
-# Option 3: AWS Profile
-export AWS_PROFILE=your_profile_name
+# Set your AWS profile
+export AWS_PROFILE=your_sso_profile_name
 ```
 
 4. **Configure API Keys and Dependencies:**
@@ -167,20 +184,60 @@ Create a quantum simulation for graphene using Materials Project data
 Generate VQE code for mp-149 (silicon) with active space reduction
 ```
 
-## Architecture
+## Directories
 
 ```
-app.py                          # Main Streamlit application
+├── agents/
+│   ├── strands_supervisor.py      # Main Strands supervisor with intelligent routing
+│   ├── strands_agentic_loop.py    # Multi-material iterative analysis
+│   ├── strands_dft_agent.py       # DFT parameter extraction
+│   └── strands_structure_agent.py # POSCAR and structure analysis
+├── config/
+│   ├── auth_module.py             # Authentication configuration
+│   └── .env.example               # Environment variables template
+├── deployment/
+│   ├── Dockerfile                 # Docker container configuration
+│   ├── .ebignore                  # Elastic Beanstalk ignore rules
+│   ├── .dockerignore              # Docker ignore rules
+│   ├── .ebextensions/             # EB configuration files
+│   └── deploy_fixed_integration.py # Deployment automation script
+├── docs/
+│   ├── deployment-guide.md        # Complete deployment instructions
+│   ├── agentic-architecture.md    # Strands workflow documentation
+│   └── braket-integration.md      # Quantum computing integration
+├── enhanced_mcp_materials/
+│   ├── local_server.py            # Enhanced MCP server with auto-recovery
+│   ├── aws_server.py              # AWS-optimized MCP server
+│   └── moire_helper.py            # Moire bilayer generation tools
 ├── models/
-│   ├── base_model.py          # Base class for all models
-│   ├── nova_pro_model.py      # Nova Pro implementation
-│   ├── llama4_model.py        # Llama 4 Scout implementation
-│   ├── llama3_model.py        # Llama 3 70B implementation
-│   └── openai_model.py        # OpenAI GPT implementation
-└── utils/
-    ├── materials_project_agent.py  # Materials Project API client
-    └── secrets_manager.py          # AWS Secrets Manager utilities
+│   ├── base_model.py              # Base class with streaming support
+│   ├── nova_pro_model.py          # Amazon Nova Pro implementation
+│   ├── llama4_model.py            # Meta Llama 4 Scout implementation
+│   ├── deepseek_model.py          # DeepSeek R1 implementation
+│   └── qwen_model.py              # Qwen 3-32B implementation
+├── setup/
+│   ├── setup_secrets.py           # AWS Secrets Manager setup
+│   └── install_braket.py          # Amazon Braket installation
+├── utils/
+│   ├── mcp_tools_wrapper.py       # MCP integration wrapper
+│   ├── braket_integration.py      # Amazon Braket quantum circuits
+│   ├── enhanced_mcp_client.py     # Robust MCP client with retries
+│   └── secrets_manager.py         # AWS Secrets Manager utilities
+├── BraketMCP/                     # Amazon Braket MCP server
+├── app.py                         # Main Streamlit application
+├── demo_mode.py                   # Demo authentication stub
+└── requirements.txt               # Python dependencies
 ```
+
+**Key Directories:**
+- `/agents`: Strands agentic workflow implementations
+- `/config`: Configuration files and authentication
+- `/deployment`: AWS Elastic Beanstalk deployment files
+- `/docs`: Comprehensive documentation
+- `/enhanced_mcp_materials`: Materials Project MCP server with reliability enhancements
+- `/models`: LLM model implementations with streaming support
+- `/setup`: Setup utilities for AWS and quantum computing integration
+- `/utils`: Core utilities for MCP, Braket, and AWS integration
 
 ## Model Configurations
 
@@ -189,7 +246,9 @@ app.py                          # Main Streamlit application
 | Nova Pro | us-east-1 | `amazon.nova-pro-v1:0` | Multimodal, latest features |
 | Llama 4 Scout | us-east-1 | `us.meta.llama4-scout-17b-instruct-v1:0` | Fast, efficient |
 | Llama 3 70B | us-west-2 | `meta.llama3-70b-instruct-v1:0` | High quality, detailed |
-| OpenAI GPT | us-west-2 | `openai.gpt-oss-20b-1:0` | Alternative approach |
+| Claude Sonnet 4.5 | us-east-1 | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Advanced reasoning, coding |
+| Claude Opus 4.1 | us-east-1 | `us.anthropic.claude-opus-4-1-20250805-v1:0` | Complex analysis, research |
+| OpenAI OSS-120B | us-west-2 | `openai.gpt-oss-20b-1:0` | Alternative approach |
 | Qwen 3-32B | us-east-1 | `qwen.qwen3-32b-v1:0` | Advanced reasoning, structured output |
 | DeepSeek R1 | us-east-1 | `us.deepseek.r1-v1:0` | Reasoning and problem-solving |
 
@@ -286,11 +345,88 @@ To enable HTTPS for your deployment:
    - HTTPS: `https://your-app-name.elasticbeanstalk.com`
    - HTTP: `http://your-app-name.elasticbeanstalk.com`
 
-## Support
+## Strands Agentic Workflows
 
-For issues and questions:
-1. Check the troubleshooting section above
-2. Review AWS Bedrock documentation
-3. Check Materials Project API documentation
-4. See docs/deployment-guide.md for deployment issues
-5. Open an issue in the repository
+The platform implements sophisticated multi-agent workflows using AWS Strands framework:
+
+- **Intelligent Workflow Dispatch**: Automatically routes queries to appropriate specialized agents
+- **Multi-Material Analysis**: Processes complex comparisons across multiple materials
+- **DFT Parameter Extraction**: Generates realistic tight-binding Hamiltonian parameters
+- **Structure Analysis**: POSCAR matching and crystal structure analysis
+- **Iterative Problem Solving**: Handles complex queries through iterative refinement
+
+For detailed documentation, see [Agentic Architecture Guide](docs/agentic-architecture.md)
+
+## Amazon Braket Integration
+
+Seamless integration with Amazon Braket quantum computing services:
+
+- **Quantum Circuit Generation**: VQE, Bell states, GHZ circuits
+- **Device Management**: List and monitor quantum devices
+- **Hybrid Algorithms**: Classical-quantum optimization
+- **Circuit Visualization**: ASCII and graphical circuit diagrams
+
+For setup instructions, see [Braket Integration Guide](docs/braket-integration.md)
+
+## MCP Server Architecture
+
+Robust Materials Project integration with enhanced reliability:
+
+- **Auto-Recovery**: Automatic server restart on failures
+- **Fallback Mechanisms**: Multiple API endpoints and caching
+- **Consistent Structure IDs**: Standardized mp-123 format
+- **Enhanced Error Handling**: Graceful degradation and retry logic
+- **Real-time Monitoring**: Health checks and performance metrics
+
+## Troubleshooting
+
+### AWS Credentials Issues
+- Ensure your AWS credentials have Bedrock access
+- Check that you're using the correct regions for each model
+- Verify IAM permissions include `bedrock:InvokeModel`
+
+### Model Access Issues
+- Some models may require explicit access requests in AWS Console
+- Check Bedrock model access in your AWS account
+- Ensure you're in the correct region for each model
+
+### Materials Project API Issues
+- Verify your API key is valid at materialsproject.org
+- Check network connectivity to Materials Project servers
+- Use dummy data mode if API is unavailable
+
+### MCP Server Issues
+- Check MCP server logs in the application
+- Verify Materials Project API key is configured
+- Restart the application if MCP server becomes unresponsive
+
+### Strands Agent Issues
+- Ensure AWS credentials have access to Claude Sonnet 4.5
+- Check Strands package versions: `strands-agents>=1.17.0`
+- Verify MCP tools wrapper initialization
+
+### Dependencies Issues
+```bash
+# If you encounter package conflicts, create a virtual environment
+python -m venv quantum_env
+source quantum_env/bin/activate  # On Windows: quantum_env\Scripts\activate
+pip install -r requirements.txt
+```
+
+## Credits
+
+This application was architected and developed by [Sharon Marfatia](https://www.linkedin.com/in/sharon-cs/). Thanks to the UBC Cloud Innovation Centre Technical and Project Management teams for their guidance and support.
+
+## License
+
+This project is distributed under the [MIT License](LICENSE).
+
+Licenses of libraries and tools used by the system are listed below:
+
+**Apache License 2.0**
+- For Qiskit quantum circuit construction and simulation - [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- For Strands Agents SDK agentic workflow implementation - [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- For Amazon Braket MCP server - [Apache License 2.0](BraketMCP/amazon-braket-mcp-server/LICENSE)
+
+**Materials Project API**
+- For Materials Project data access - "Materials Project API is freely available for academic and non-commercial use"
