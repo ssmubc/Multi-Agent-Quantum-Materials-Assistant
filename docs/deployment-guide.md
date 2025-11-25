@@ -151,7 +151,7 @@ python setup/setup_secrets.py
    - **First, create deployment ZIP:**
      ```bash
      # Run this command in your project root directory
-     python deploy_fixed_integration.py
+     python deployment/deploy_fixed_integration.py
      ```
    - **Then upload:** Click "Choose file" and select the ZIP file created above
    - Version label: `v1.0`
@@ -257,7 +257,7 @@ Your app will be available at the URL shown in the Beanstalk console, typically:
 ### Code Updates
 ```bash
 # Create new deployment package
-python deploy_fixed_integration.py
+python deployment/deploy_fixed_integration.py
 
 # Deploy via EB CLI
 eb deploy
