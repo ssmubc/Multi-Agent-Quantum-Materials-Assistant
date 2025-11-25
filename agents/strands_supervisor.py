@@ -1222,6 +1222,49 @@ Direct
         # Default to H2 for VQE queries
         return {'formula': 'H2', 'band_gap': 8.0, 'formation_energy': 0.0, 'crystal_system': 'molecular'}
     
+    def _extract_materials_from_query(self, query: str) -> list:
+        """Extract multiple materials mentioned in query for comparison analysis"""
+        try:
+            materials = []
+            query_lower = query.lower()
+            
+            # Common materials mapping
+            materials_map = {
+                "graphene": "C", "carbon": "C", "diamond": "C",
+                "silicon": "Si", "germanium": "Ge", "tin": "Sn",
+                "mos2": "MoS2", "ws2": "WS2", "bn": "BN",
+                "gan": "GaN", "gaas": "GaAs", "inp": "InP",
+                "tio2": "TiO2", "sio2": "SiO2", "al2o3": "Al2O3"
+            }
+            
+            # Find material IDs (mp-XXXX)
+            mp_ids = re.findall(r'mp-\d+', query_lower)
+            materials.extend(mp_ids)
+            
+            # Find named materials
+            for material_name, formula in materials_map.items():
+                if material_name in query_lower:
+                    materials.append(formula)
+            
+            # Find chemical formulas
+            formula_pattern = r'\b[A-Z][a-z]?(?:\d+)?(?:[A-Z][a-z]?\d*)*\b'
+            formula_matches = re.findall(formula_pattern, query)
+            chemical_formulas = [m for m in formula_matches if len(m) <= 10 and not m.lower() in ['VQE', 'UCCSD', 'DFT', 'MP']]
+            materials.extend(chemical_formulas)
+            
+            # Remove duplicates while preserving order
+            unique_materials = []
+            for material in materials:
+                if material not in unique_materials:
+                    unique_materials.append(material)
+            
+            logger.info(f"🔍 STRANDS: Extracted materials from query: {unique_materials}")
+            return unique_materials
+            
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Materials extraction failed: {e}")
+            return []
+    
     def _extract_formula_from_poscar(self, poscar_text: str) -> str:
         """Extract chemical formula from POSCAR (from original supervisor)"""
         try:
