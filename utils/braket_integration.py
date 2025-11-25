@@ -294,7 +294,7 @@ class BraketIntegration:
         else:  # Metal or small gap
             return "adaptive"
     
-    def _generate_vqe_gates(self, num_qubits: int, ansatz_type: str, material_data: Dict[str, Any]) -> List[Gate]:
+    def _generate_vqe_gates(self, num_qubits: int, ansatz_type: str, material_data: Dict[str, Any]) -> List[Any]:
         """Generate VQE ansatz gates based on material properties."""
         gates = []
         
