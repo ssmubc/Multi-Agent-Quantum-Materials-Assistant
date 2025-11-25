@@ -218,7 +218,9 @@ Direct
 def generate_structure_id(material_id: str = None, structure: Structure = None) -> str:
     """Generate unique structure ID"""
     if material_id:
-        return f"mp_{material_id}"
+        # Ensure consistent format - remove mp- prefix if present, then add mp-
+        clean_id = material_id.replace('mp-', '')
+        return f"mp-{clean_id}"
     else:
         content = str(structure) if structure else str(uuid.uuid4())
         return hashlib.md5(content.encode()).hexdigest()[:8]
@@ -370,9 +372,9 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     logger.info(f"🔍 GET_STRUCTURE: Available keys: {list(structure_storage.keys())}")
     
     if structure_id not in structure_storage:
-        # Try to reload from Materials Project if it's an mp_ ID
-        if structure_id.startswith("mp_"):
-            material_id = structure_id.replace("mp_", "")
+        # Try to reload from Materials Project if it's an mp- ID
+        if structure_id.startswith("mp-"):
+            material_id = structure_id
             logger.info(f"🔄 GET_STRUCTURE: Attempting to reload {material_id} from Materials Project")
             
             api_key = os.getenv("MP_API_KEY")
@@ -500,62 +502,129 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
     """
     structure_id = structure_uri.replace("structure://", "")
     
+    logger.info(f"🎨 PLOT_STRUCTURE: Starting visualization for {structure_id}")
+    
     if structure_id not in structure_storage:
+        logger.error(f"❌ PLOT_STRUCTURE: Structure {structure_id} not found in storage")
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     structure_info = structure_storage[structure_id]
     structure = structure_info.get('structure')
     
     if not structure:
+        logger.error(f"❌ PLOT_STRUCTURE: No structure data for {structure_id}")
         return [ImageContent(type="image", data="", mimeType="image/png")]
     
     try:
-        # Create a simple 3D plot using matplotlib
+        logger.info(f"🎨 PLOT_STRUCTURE: Creating 3D visualization for {len(structure)} atoms")
+        logger.info(f"🎨 PLOT_STRUCTURE: Structure formula: {structure.composition.reduced_formula}")
+        
+        # 3D visualization with proper error handling
+        import matplotlib
+        matplotlib.use('Agg')  # Use non-interactive backend
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
         
-        # Plot atoms
-        for site in structure:
-            coords = site.frac_coords
-            ax.scatter(coords[0], coords[1], coords[2], 
-                      s=100, label=str(site.specie), alpha=0.8)
+        # Plot atoms in 3D
+        species_colors = {}
+        color_map = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
         
-        # Plot unit cell
+        for site in structure:
+            specie = str(site.specie)
+            if specie not in species_colors:
+                species_colors[specie] = color_map[len(species_colors) % len(color_map)]
+            
+            coords = site.coords
+            ax.scatter(coords[0], coords[1], coords[2], 
+                      s=200, c=species_colors[specie], 
+                      label=specie, alpha=0.8, edgecolors='black')
+        
+        # Add unit cell wireframe
         lattice = structure.lattice
-        vertices = [
-            [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],  # bottom face
-            [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]   # top face
+        # Define unit cell corners
+        corners = [
+            [0, 0, 0],
+            lattice.matrix[0],
+            lattice.matrix[1], 
+            lattice.matrix[2],
+            lattice.matrix[0] + lattice.matrix[1],
+            lattice.matrix[0] + lattice.matrix[2],
+            lattice.matrix[1] + lattice.matrix[2],
+            lattice.matrix[0] + lattice.matrix[1] + lattice.matrix[2]
         ]
         
         # Draw unit cell edges
         edges = [
-            [0, 1], [1, 2], [2, 3], [3, 0],  # bottom face
-            [4, 5], [5, 6], [6, 7], [7, 4],  # top face
-            [0, 4], [1, 5], [2, 6], [3, 7]   # vertical edges
+            [0, 1], [0, 2], [0, 3], [1, 4], [1, 5], [2, 4], [2, 6], 
+            [3, 5], [3, 6], [4, 7], [5, 7], [6, 7]
         ]
         
         for edge in edges:
-            points = [vertices[edge[0]], vertices[edge[1]]]
-            ax.plot3D(*zip(*points), 'k-', alpha=0.3)
+            points = [corners[edge[0]], corners[edge[1]]]
+            ax.plot3D(*zip(*points), 'k-', alpha=0.6, linewidth=1)
         
-        ax.set_xlabel('a')
-        ax.set_ylabel('b')
-        ax.set_zlabel('c')
-        ax.set_title(f'Crystal Structure: {structure.composition.reduced_formula}')
-        ax.legend()
+        ax.set_xlabel('X (Å)')
+        ax.set_ylabel('Y (Å)')
+        ax.set_zlabel('Z (Å)')
+        ax.set_title(f'3D Crystal Structure: {structure.composition.reduced_formula}')
+        
+        # Remove duplicate labels
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        if by_label:
+            ax.legend(by_label.values(), by_label.keys(), loc='upper right')
         
         # Convert to base64
         buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
         buffer.seek(0)
-        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        buffer_data = buffer.getvalue()
         plt.close()
         
+        logger.info(f"📊 PLOT_STRUCTURE: Buffer size: {len(buffer_data)} bytes")
+        
+        if len(buffer_data) == 0:
+            logger.error(f"❌ PLOT_STRUCTURE: Empty buffer - 3D matplotlib failed")
+            return [ImageContent(type="image", data="", mimeType="image/png")]
+        
+        img_base64 = base64.b64encode(buffer_data).decode('utf-8')
+        logger.info(f"✅ PLOT_STRUCTURE: Successfully created 3D visualization ({len(img_base64)} chars)")
         return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
         
-    except Exception as e:
-        logger.error(f"Error plotting structure: {e}")
-        return [ImageContent(type="image", data="", mimeType="image/png")]
+    except Exception as matplotlib_error:
+        logger.error(f"❌ PLOT_STRUCTURE: Matplotlib failed ({matplotlib_error}), trying basic fallback")
+        
+        try:
+            # Basic fallback - simple 2D plot
+            fig, ax = plt.subplots(figsize=(8, 6))
+            
+            # Plot atoms in 2D (x-y projection)
+            for site in structure:
+                coords = site.coords
+                ax.scatter(coords[0], coords[1], s=100, label=str(site.specie), alpha=0.8)
+            
+            ax.set_xlabel('X (Å)')
+            ax.set_ylabel('Y (Å)')
+            ax.set_title(f'Crystal Structure (2D): {structure.composition.reduced_formula}')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            
+            # Convert to base64
+            buffer = BytesIO()
+            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+            buffer.seek(0)
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            plt.close()
+            
+            logger.info(f"✅ PLOT_STRUCTURE: Basic 2D fallback successful ({len(img_base64)} chars)")
+            return [ImageContent(type="image", data=img_base64, mimeType="image/png")]
+            
+        except Exception as e:
+            logger.error(f"❌ PLOT_STRUCTURE: All visualization methods failed: {e}")
+            return [ImageContent(type="image", data="", mimeType="image/png")]
 
 @mcp.tool()
 def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any]) -> List[TextContent]:
@@ -576,8 +645,8 @@ def build_supercell(bulk_structure_uri: str, supercell_parameters: Dict[str, Any
     
     if structure_id not in structure_storage:
         # Try to reload structure if missing
-        if structure_id.startswith("mp_"):
-            material_id = structure_id.replace("mp_", "")
+        if structure_id.startswith("mp-"):
+            material_id = structure_id
             logger.info(f"🔄 BUILD_SUPERCELL: Attempting to reload {material_id}")
             
             api_key = os.getenv("MP_API_KEY")
