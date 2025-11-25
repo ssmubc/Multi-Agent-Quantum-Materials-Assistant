@@ -310,15 +310,76 @@ print(f"\nThis uses REAL Materials Project structure data!")
             else:
                 # Only call MCP if Strands hasn't already done it
                 try:
-                    structure_uri = mp_data.get("structure_uri")
+                    # Extract structure URI from Strands MP data
+                    structure_uri = None
+                    if mp_data and isinstance(mp_data, dict):
+                        # Try different ways to get structure URI
+                        structure_uri = mp_data.get("structure_uri")
+                        if not structure_uri:
+                            # Check if we have material_id to construct URI
+                            material_id = mp_data.get("material_id")
+                            if material_id:
+                                structure_uri = f"structure://{material_id}"
+                        if not structure_uri:
+                            # Check nested data structures from Strands
+                            for key, value in mp_data.items():
+                                if isinstance(value, dict) and "structure_uri" in value:
+                                    structure_uri = value["structure_uri"]
+                                    break
+                        if not structure_uri:
+                            # Last resort: try to get from MCP agent's last successful lookup
+                            try:
+                                # Re-search for the material to get structure URI
+                                temp_result = self.mp_agent.search(formula)
+                                if temp_result and isinstance(temp_result, dict):
+                                    structure_uri = temp_result.get("structure_uri")
+                                    if structure_uri:
+                                        logger.info(f"✅ BASE MODEL: Got structure URI from fresh search: {structure_uri}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ BASE MODEL: Failed to get structure URI from fresh search: {e}")
+                    
                     supercell_params = intent.get("supercell", {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
                     
                     logger.info(f"🔧 BASE MODEL: Using MCP supercell tool for {structure_uri}")
-                    supercell_result = self.mp_agent.build_supercell(structure_uri, supercell_params)
+                    if structure_uri:
+                        supercell_result = self.mp_agent.build_supercell(structure_uri, supercell_params)
+                    else:
+                        logger.warning(f"❌ BASE MODEL: No structure URI found in MP data")
+                        supercell_result = None
                     
                     if supercell_result:
                         supercell_uri = supercell_result.get("supercell_uri", "")
                         scaling = supercell_params["scaling_matrix"]
+                        
+                        # Try to get actual supercell coordinates
+                        supercell_coordinates = None
+                        try:
+                            if supercell_uri:
+                                # Extract the actual structure URI from the supercell result
+                                structure_match = re.search(r'structure://([a-f0-9]+)', supercell_uri)
+                                if structure_match:
+                                    actual_uri = f"structure://{structure_match.group(1)}"
+                                    logger.info(f"🔍 BASE MODEL: Retrieving supercell coordinates from {actual_uri}")
+                                    coords_result = self.mp_agent.get_structure_data(actual_uri, format='poscar')
+                                    if coords_result and isinstance(coords_result, str):
+                                        supercell_coordinates = coords_result
+                                        logger.info(f"✅ BASE MODEL: Retrieved supercell POSCAR ({len(coords_result)} chars)")
+                        except Exception as e:
+                            logger.warning(f"⚠️ BASE MODEL: Failed to retrieve supercell coordinates: {e}")
+                        
+                        # Include coordinates in the code if available
+                        coords_section = ""
+                        if supercell_coordinates:
+                            coords_section = f'''
+
+# ACTUAL SUPERCELL COORDINATES (POSCAR format):
+"""
+{supercell_coordinates}
+"""
+
+# The above coordinates represent the actual 2x2x2 supercell structure
+# with {scaling[0][0] * scaling[1][1] * scaling[2][2]} unit cells containing real atomic positions
+'''
                         
                         code = f'''# Supercell VQE for {pretty_formula} using MCP-generated supercell
 from qiskit_nature.second_q.operators import FermionicOp
@@ -328,7 +389,7 @@ from qiskit_algorithms import VQE
 from qiskit.primitives import Estimator
 
 # Supercell created via MCP: {supercell_uri}
-# Scaling matrix: {scaling}
+# Scaling matrix: {scaling}{coords_section}
 
 # Extended Hubbard model for supercell
 t = 1.0  # hopping parameter
@@ -831,23 +892,23 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 if mp_match:
                     formula = mp_match.group(0)
                 else:
-                    # Try chemical formulas - comprehensive pattern matching
+                    # Smart formula extraction - prioritize compounds over simple molecules
+                    # Use comprehensive pattern matching with proper precedence
                     compound_patterns = [
-                        # Simple molecules first (highest priority)
-                        r'\bH2\b', r'\bH2O\b', r'\bNH3\b', r'\bCH4\b', r'\bCO2\b', r'\bCO\b', r'\bN2\b', r'\bO2\b',
-                        # Common oxides
+                        # Multi-element compounds (highest priority) - match whole words
                         r'\bTiO2\b', r'\bSiO2\b', r'\bAl2O3\b', r'\bFe2O3\b', r'\bCuO\b',
                         r'\bZnO\b', r'\bMgO\b', r'\bCaO\b', r'\bNiO\b', r'\bCoO\b',
-                        # Perovskites
                         r'\bBaTiO3\b', r'\bSrTiO3\b', r'\bCaTiO3\b', r'\bLaAlO3\b',
-                        # Semiconductors
                         r'\bGaAs\b', r'\bInP\b', r'\bGaN\b', r'\bSiC\b', r'\bAlN\b',
-                        # 2D Materials
                         r'\bMoS2\b', r'\bWS2\b', r'\bWSe2\b', r'\bMoSe2\b', r'\bBN\b',
-                        # Complex compounds
-                        r'\bYBa2Cu3O7\b', r'\bBi2Te3\b', r'\bSi3N4\b', r'\bWC\b', r'\bTiC\b'
+                        r'\bYBa2Cu3O7\b', r'\bBi2Te3\b', r'\bSi3N4\b', r'\bWC\b', r'\bTiC\b',
+                        # Simple molecules (lower priority) - only match if not part of compounds
+                        r'(?<!\w)H2(?!O)(?!\w)', r'(?<!\w)H2O(?!\w)', r'(?<!\w)NH3(?!\w)', 
+                        r'(?<!\w)CH4(?!\w)', r'(?<!\w)CO2(?!\w)', r'(?<!\w)CO(?!2)(?!\w)', 
+                        r'(?<!\w)N2(?!\w)', r'(?<!\w)O2(?!\w)',  # O2 last to avoid matching in compounds
                     ]
                     
+                    # Apply patterns in order of priority (compounds first, then simple molecules)
                     for pattern in compound_patterns:
                         match = re.search(pattern, query, re.IGNORECASE)
                         if match:
@@ -867,56 +928,53 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                             formula = "H2"  # Default fallback
             logger.info(f"🔍 BASE MODEL: Extracted formula '{formula}' from query: '{query[:100]}...'")
             
-            # Check for cached Strands data first, then use supervisor agent
+            # Check for cached Strands data first (from app.py)
             mp_data = getattr(self, '_cached_mp_data', None)
             strands_result = getattr(self, '_cached_strands_result', None)
             
             if mp_data and strands_result:
                 mcp_actions = strands_result.get('mcp_actions', [])
                 logger.info(f"✅ BASE MODEL: Using cached Strands data with {len(mcp_actions)} MCP actions: {mcp_actions}")
+                # Use formula from Strands data if available
+                if isinstance(mp_data, dict) and 'formula' in mp_data:
+                    formula = mp_data['formula']
+                    logger.info(f"✅ BASE MODEL: Using formula from Strands data: {formula}")
                 # Store Strands result for supercell logic
                 self._cached_strands_result = strands_result
+            elif mp_data:
+                # We have MP data from Strands - use it directly
+                logger.info(f"✅ BASE MODEL: Using cached MP data from Strands: {type(mp_data)}")
             elif include_mp_data and self.mp_agent:
                 logger.info(f"🔍 BASE MODEL: include_mp_data={include_mp_data}, mp_agent={type(self.mp_agent) if self.mp_agent else None}")
                 
-                # Check if this is a molecular query that should skip MP search
+                # Check if this is a simple molecular query that should skip MP search
                 query_lower = query.lower()
-                molecular_keywords = ['h2', 'hydrogen molecule', 'water molecule', 'h2o molecule', 'co2', 'ch4', 'nh3', 'h2 molecule', 'hydrogen gas']
-                is_molecular_query = any(mol in query_lower for mol in molecular_keywords)
+                molecular_keywords = ['h2 molecule', 'hydrogen molecule', 'water molecule', 'h2o molecule', 'hydrogen gas']
+                has_mp_context = any(term in query_lower for term in ['poscar', 'materials project', 'mp-', 'structure', 'crystal', 'analyze this'])
+                is_simple_molecular_query = any(mol in query_lower for mol in molecular_keywords) and not has_mp_context
                 
-                if is_molecular_query:
-                    logger.info(f"🧪 BASE MODEL: Molecular query detected - skipping supervisor agent for simple molecule")
-                    mp_data = None  # Skip MP data for molecular queries
-                else:
+                if is_simple_molecular_query:
+                    logger.info(f"🧪 BASE MODEL: Simple molecular query detected - getting MP data directly")
                     try:
-                        from agents.supervisor_agent import SupervisorAgent
-                        supervisor = SupervisorAgent(self.mp_agent)
-                        
-                        logger.info(f"🤖 BASE MODEL: Using supervisor agent for query: {query[:100]}...")
-                        supervisor_result = supervisor.process_query(query, formula)
-                        
-                        if supervisor_result and supervisor_result.get("status") == "success":
-                            mp_data = supervisor_result.get("mp_data")
-                            mcp_actions = supervisor_result.get("mcp_actions", [])
-                            logger.info(f"✅ BASE MODEL: Supervisor handled query with {len(mcp_actions)} MCP actions: {mcp_actions}")
-                        else:
-                            logger.warning(f"⚠️ BASE MODEL: Supervisor returned error: {supervisor_result}")
-                            
-                    except ImportError as ie:
-                        logger.error(f"💥 BASE MODEL: Cannot import supervisor agent: {ie}")
+                        mp_data = self.mp_agent.search(formula=formula)
+                        if mp_data:
+                            mp_data = {formula: mp_data}
                     except Exception as e:
-                        logger.error(f"💥 BASE MODEL: Supervisor error: {e}")
-                    
-                # Fix: Handle case where mp_data is a list instead of dict, or None for molecular queries
-                if mp_data:
-                    if isinstance(mp_data, list):
-                        logger.warning(f"⚠️ BASE MODEL: MP data is list (timeout fallback), converting to dict")
-                        mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data)}
-                    logger.info(f"✅ BASE MODEL: MP data retrieved: {type(mp_data)} with keys: {list(mp_data.keys()) if isinstance(mp_data, dict) else 'N/A'}")
-                elif mp_data is None:
-                    logger.info(f"🧪 BASE MODEL: No MP data for molecular query: {formula}")
+                        logger.warning(f"⚠️ BASE MODEL: MP search failed: {e}")
+                        mp_data = None
                 else:
-                    logger.warning(f"❌ BASE MODEL: No MP data retrieved for {formula}")
+                    logger.info(f"🔍 BASE MODEL: Non-molecular query, expecting Strands data")
+                    mp_data = None
+
+                    
+            # Fix: Handle case where mp_data is a list instead of dict, or None for molecular queries
+            if mp_data:
+                if isinstance(mp_data, list):
+                    logger.warning(f"⚠️ BASE MODEL: MP data is list (timeout fallback), converting to dict")
+                    mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data)}
+                logger.info(f"✅ BASE MODEL: MP data retrieved: {type(mp_data)} with keys: {list(mp_data.keys()) if isinstance(mp_data, dict) else 'N/A'}")
+            elif mp_data is None:
+                logger.info(f"🧪 BASE MODEL: No MP data for molecular query: {formula}")
             else:
                 logger.warning(f"❌ BASE MODEL: Skipping MP search - include_mp_data={include_mp_data}, has_agent={bool(self.mp_agent)}")
             
@@ -928,17 +986,23 @@ print(f"Toy Hamiltonian for {formula}: {{len(qubit_op)}} Pauli terms, {{ansatz.n
                 logger.warning(f"⚠️ BASE MODEL: Converting list mp_data to dict for code generation")
                 mp_data = {"results": mp_data, "formula": formula, "count": len(mp_data), "error": "timeout_fallback"}
             elif mp_data is None:
-                # For molecular queries, create minimal dict to avoid None errors
-                logger.info(f"🧪 BASE MODEL: Creating minimal mp_data dict for molecular query")
-                # Use the correct molecular formula, not the extracted one
-                molecular_formula = formula
-                if 'h2' in query.lower() and 'molecule' in query.lower():
-                    molecular_formula = 'H2'
-                elif 'h2o' in query.lower():
-                    molecular_formula = 'H2O'
-                elif 'co2' in query.lower():
-                    molecular_formula = 'CO2'
-                mp_data = {"formula": molecular_formula, "molecular_query": True}
+                # Only create minimal dict for simple molecular queries, not POSCAR/MP queries
+                query_lower = query.lower()
+                has_mp_context = any(term in query_lower for term in ['poscar', 'materials project', 'mp-', 'structure', 'crystal', 'analyze this'])
+                
+                if not has_mp_context:
+                    logger.info(f"🧪 BASE MODEL: Creating minimal mp_data dict for molecular query")
+                    # Use the correct molecular formula, not the extracted one
+                    molecular_formula = formula
+                    if 'h2' in query.lower() and 'molecule' in query.lower():
+                        molecular_formula = 'H2'
+                    elif 'h2o' in query.lower():
+                        molecular_formula = 'H2O'
+                    elif 'co2' in query.lower():
+                        molecular_formula = 'CO2'
+                    mp_data = {"formula": molecular_formula, "molecular_query": True}
+                if not mp_data:
+                    logger.warning(f"❌ BASE MODEL: No MP data for POSCAR/structure query - this should not happen")
             
             # Generate base code with braket_mode awareness
             base_code = self.generate_base_code(formula, intent, mp_data, braket_mode)
@@ -1055,8 +1119,9 @@ Detected Intent: {json.dumps(intent, indent=2)}
             band_gap = mp_data.get('band_gap', 'N/A')
             formation_energy = mp_data.get('formation_energy', 'N/A')
             
-            # Check if this is actually from MCP or just a molecular query
-            is_molecular_query = mp_data.get('molecular_query', False) or formula in ['H2', 'H2O', 'CO2', 'CH4', 'NH3'] or 'molecule' in query.lower()
+            # Check if this is actually from MCP or just a simple molecular query
+            has_mp_context = any(term in query.lower() for term in ['poscar', 'materials project', 'mp-', 'structure', 'crystal'])
+            is_molecular_query = mp_data.get('molecular_query', False) and not has_mp_context
             
             if show_debug:
                 # Full debug information
@@ -1095,12 +1160,44 @@ Generate appropriate molecular quantum simulation code.
 
 """
         
+        # Check if user is asking for supercell coordinates specifically
+        wants_coordinates = any(term in query.lower() for term in ['coordinates', 'poscar', 'atomic positions', 'structure data', 'display'])
+        
         # Add complete Strands context if available
         if hasattr(self, '_cached_strands_result') and self._cached_strands_result:
             strands_data = self._cached_strands_result
             mp_data_from_strands = strands_data.get('mp_data') or {}
             mcp_actions = strands_data.get('mcp_actions', [])
             moire_params = strands_data.get('moire_params', {})
+            
+            # If supercell was created and user wants coordinates, try to retrieve them
+            if wants_coordinates and 'build_supercell' in mcp_actions and self.mp_agent:
+                try:
+                    # Look for supercell URI in the cached result
+                    supercell_uri = None
+                    if 'supercell_uri' in strands_data:
+                        supercell_uri = strands_data['supercell_uri']
+                    else:
+                        # Try to extract from MCP actions or other data
+                        for action_data in strands_data.get('action_results', []):
+                            if isinstance(action_data, dict) and 'supercell_uri' in action_data:
+                                supercell_uri = action_data['supercell_uri']
+                                break
+                    
+                    if supercell_uri:
+                        logger.info(f"🔍 BASE MODEL: User wants coordinates, retrieving from {supercell_uri}")
+                        coords_result = self.mp_agent.get_structure_data(supercell_uri, format='poscar')
+                        if coords_result:
+                            prompt += f"""\n\nSUPERCELL COORDINATES RETRIEVED:
+The user specifically asked for supercell coordinates. Here are the actual atomic positions:
+
+{coords_result}
+
+INCLUDE THESE EXACT COORDINATES in your response. Do not use generic coordinates.
+
+"""
+                except Exception as e:
+                    logger.warning(f"⚠️ BASE MODEL: Failed to retrieve supercell coordinates for display: {e}")
             
             # Check for Strands-generated quantum code
             quantum_code = None
@@ -1156,7 +1253,10 @@ This is production-ready quantum simulation code generated by AWS Strands. Inclu
                 
                 # Add supercell context if applicable
                 if 'build_supercell' in mcp_actions:
-                    prompt += "SUPERCELL STRUCTURE GENERATED: Ready for extended system analysis\n\n"
+                    if wants_coordinates:
+                        prompt += "SUPERCELL STRUCTURE GENERATED: Coordinates retrieved and ready for display\n\n"
+                    else:
+                        prompt += "SUPERCELL STRUCTURE GENERATED: Ready for extended system analysis\n\n"
                 
                 # Add visualization context if applicable
                 if 'plot_structure' in mcp_actions:
