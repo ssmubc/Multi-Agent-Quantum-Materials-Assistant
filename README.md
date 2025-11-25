@@ -57,8 +57,8 @@ The platform utilizes a sophisticated multi-agent architecture combining AWS Bed
 ### AWS Configuration
 You need AWS credentials configured with access to Amazon Bedrock. The models are region-specific:
 
-- **us-east-1**: Nova Pro, Llama 4 Scout
-- **us-west-2**: Llama 3 70B, OpenAI GPT OSS
+- **us-east-1**: Nova Pro, Llama 4 Scout, Claude Sonnet 4.5, Claude Opus 4.1, Qwen 3-32B, DeepSeek R1
+- **us-west-2**: Llama 3 70B, OpenAI OSS-120B
 
 ### Required IAM Permissions
 ```json
