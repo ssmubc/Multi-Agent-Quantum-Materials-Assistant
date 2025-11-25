@@ -238,7 +238,7 @@ pip install -r requirements.txt
 
 For web deployment without requiring users to clone the repository:
 
-1. **See DEPLOYMENT.md** for complete deployment guide
+1. **See docs/deployment-guide.md** for complete deployment guide
 2. **Deploy to AWS Elastic Beanstalk** for shared web access
 3. **Users access via URL** - no setup required
 4. **Auto-scaling** and load balancing included
@@ -292,5 +292,5 @@ For issues and questions:
 1. Check the troubleshooting section above
 2. Review AWS Bedrock documentation
 3. Check Materials Project API documentation
-4. See DEPLOYMENT.md for deployment issues
+4. See docs/deployment-guide.md for deployment issues
 5. Open an issue in the repository
