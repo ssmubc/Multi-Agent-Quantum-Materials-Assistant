@@ -115,108 +115,161 @@ class StrandsSupervisorAgent:
         if mcp_wrapper:
             logger.info(f"🔧 STRANDS: Using direct MCP wrapper for {formula}")
             
-            # Determine action based on query
+            # Determine action based on query - skip health check for direct actions
             query_lower = query.lower()
             if "moire" in query_lower or "bilayer" in query_lower:
-                # For moire queries, search first then create moire
-                search_result = mcp_wrapper.search_material(formula)
-                if search_result["status"] == "success":
-                    # Extract material ID and create moire
-                    import re
-                    results_text = str(search_result["data"])
-                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
-                    if material_id_match:
-                        material_id = material_id_match.group(1)
-                        moire_result = mcp_wrapper.create_moire_bilayer(material_id)
-                        return {
-                            "status": "success",
-                            "mp_data": search_result["data"],
-                            "mcp_actions": ["search_materials_by_formula", "moire_homobilayer"],
-                            "mcp_results": {"search": search_result, "moire": moire_result}
-                        }
+                # For moire queries - use the specialized handler
+                logger.info(f"🌀 STRANDS: Moire bilayer detected, using specialized handler")
+                return self._handle_moire(formula, query)
             elif "supercell" in query_lower:
-                # For supercell queries
-                search_result = mcp_wrapper.search_material(formula)
-                if search_result["status"] == "success":
-                    import re
-                    results_text = str(search_result["data"])
-                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
-                    if material_id_match:
-                        material_id = material_id_match.group(1)
-                        supercell_result = mcp_wrapper.create_supercell(material_id)
+                # For supercell queries - handle material ID directly
+                if formula.startswith("mp-"):
+                    material_id = formula
+                    logger.info(f"🏗️ STRANDS: Using material ID directly for supercell: {material_id}")
+                    try:
+                        # Get material data first
+                        material_data = self.mp_agent.select_material_by_id(material_id)
+                        # Then create supercell
+                        structure_uri = f"structure://{material_id}"
+                        supercell_result = self.mp_agent.build_supercell(structure_uri, {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
+                        logger.info(f"✅ STRANDS: Direct supercell successful for {material_id}")
                         return {
                             "status": "success",
-                            "mp_data": search_result["data"],
-                            "mcp_actions": ["search_materials_by_formula", "build_supercell"],
-                            "mcp_results": {"search": search_result, "supercell": supercell_result}
+                            "mp_data": material_data,
+                            "mcp_actions": ["select_material_by_id", "build_supercell"],
+                            "mcp_results": {"material_data": material_data, "supercell": supercell_result}
                         }
-            elif "plot" in query_lower or "visualiz" in query_lower:
-                # For visualization queries
-                search_result = mcp_wrapper.search_material(formula)
-                if search_result["status"] == "success":
-                    import re
-                    results_text = str(search_result["data"])
-                    material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
-                    if material_id_match:
-                        material_id = material_id_match.group(1)
-                        viz_result = mcp_wrapper.create_visualization(material_id)
+                    except Exception as e:
+                        logger.error(f"💥 STRANDS: Direct supercell failed: {e}")
+                        return {
+                            "status": "error",
+                            "message": f"Supercell creation failed: {str(e)}",
+                            "mcp_actions": ["build_supercell"]
+                        }
+                else:
+                    # Search first, then create supercell
+                    search_result = mcp_wrapper.search_material(formula)
+                    if search_result["status"] == "success":
+                        import re
+                        results_text = str(search_result["data"])
+                        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                        if material_id_match:
+                            material_id = material_id_match.group(1)
+                            supercell_result = mcp_wrapper.create_supercell(material_id)
+                            return {
+                                "status": "success",
+                                "mp_data": search_result["data"],
+                                "mcp_actions": ["search_materials_by_formula", "build_supercell"],
+                                "mcp_results": {"search": search_result, "supercell": supercell_result}
+                            }
+            elif "plot" in query_lower or "visualiz" in query_lower or "3d" in query_lower or "structure" in query_lower:
+                # For visualization queries - direct call without health check
+                logger.info(f"📊 STRANDS: Visualization request detected for {formula}")
+                
+                # Handle material ID directly
+                if formula.startswith("mp-"):
+                    material_id = formula
+                    logger.info(f"📊 STRANDS: Using material ID directly: {material_id}")
+                    try:
+                        # Get material data first
+                        material_data = self.mp_agent.select_material_by_id(material_id)
+                        # Then create visualization - fix structure URI format
+                        viz_result = self.mp_agent.plot_structure(f"structure://{material_id}", [1, 1, 1])
+                        logger.info(f"✅ STRANDS: Direct visualization successful for {material_id}")
                         return {
                             "status": "success",
-                            "mp_data": search_result["data"],
-                            "mcp_actions": ["search_materials_by_formula", "plot_structure"],
-                            "mcp_results": {"search": search_result, "visualization": viz_result}
+                            "mp_data": material_data,
+                            "mcp_actions": ["select_material_by_id", "plot_structure"],
+                            "mcp_results": {"material_data": material_data, "plot_structure": viz_result}
+                        }
+                    except Exception as e:
+                        logger.error(f"💥 STRANDS: Direct visualization failed: {e}")
+                        return {
+                            "status": "error",
+                            "message": f"Visualization failed: {str(e)}",
+                            "mcp_actions": ["plot_structure"]
+                        }
+                else:
+                    # Search first, then visualize
+                    search_result = mcp_wrapper.search_material(formula)
+                    if search_result["status"] == "success":
+                        import re
+                        results_text = str(search_result["data"])
+                        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                        if material_id_match:
+                            material_id = material_id_match.group(1)
+                            logger.info(f"📊 STRANDS: Creating 3D visualization for {material_id}")
+                            structure_uri = f"structure://{material_id}"
+                            try:
+                                viz_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+                                logger.info(f"✅ STRANDS: Plot structure successful for {material_id}")
+                                return {
+                                    "status": "success",
+                                    "mp_data": search_result["data"],
+                                    "mcp_actions": ["search_materials_by_formula", "plot_structure"],
+                                    "mcp_results": {"search": search_result, "plot_structure": viz_result}
+                                }
+                            except Exception as e:
+                                logger.error(f"💥 STRANDS: Plot structure failed: {e}")
+                                return {
+                                    "status": "success",
+                                    "mp_data": search_result["data"],
+                                    "mcp_actions": ["search_materials_by_formula"],
+                                    "mcp_results": {"search": search_result},
+                                    "plot_error": str(e)
+                                }
+                    else:
+                        logger.error(f"💥 STRANDS: Search failed for visualization: {search_result}")
+                        return {
+                            "status": "error",
+                            "message": f"Could not find material {formula} for visualization",
+                            "mcp_actions": ["search_materials_by_formula"]
                         }
             else:
-                # Default: just search
+                # Default: search + visualization if requested
                 search_result = mcp_wrapper.search_material(formula)
                 if search_result["status"] == "success":
+                    # Check if visualization was requested in the default case
+                    if "3d" in query_lower or "visualiz" in query_lower or "plot" in query_lower or "structure" in query_lower:
+                        import re
+                        results_text = str(search_result["data"])
+                        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+                        if material_id_match:
+                            material_id = material_id_match.group(1)
+                            logger.info(f"📊 STRANDS: Adding visualization for {material_id}")
+                            structure_uri = f"structure://{material_id}"
+                            try:
+                                viz_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+                                logger.info(f"✅ STRANDS: Default visualization successful for {material_id}")
+                                return {
+                                    "status": "success",
+                                    "mp_data": search_result["data"],
+                                    "mcp_actions": ["search_materials_by_formula", "plot_structure"],
+                                    "mcp_results": {"search": search_result, "plot_structure": viz_result}
+                                }
+                            except Exception as e:
+                                logger.error(f"💥 STRANDS: Visualization failed in default: {e}")
+                                # Continue without visualization
+                        else:
+                            logger.warning(f"⚠️ STRANDS: No material ID found for visualization in: {results_text[:100]}")
+                    
                     return {
                         "status": "success",
                         "mp_data": search_result["data"],
                         "mcp_actions": ["search_materials_by_formula"],
                         "mcp_results": {"search": search_result}
                     }
+                else:
+                    logger.warning(f"⚠️ STRANDS: MCP search failed: {search_result}")
         
-        # Fallback: Create context-aware prompt for Strands agent
-        prompt = f"""
-        You are a quantum materials analysis agent. Analyze this query: "{query}"
-        Material formula: {formula}
-        
-        Provide analysis and recommendations for this material and query.
-        """
-        
-        try:
-            # Let Strands agent call MCP tools directly through AWS tools
-            response = self.agent(prompt)
-            
-            # Get response text
-            response_text = getattr(response, 'text', str(response))
-            logger.info(f"🤖 STRANDS: Agent response: {response_text[:200]}...")
-            
-            # Check if agent actually called tools
-            if hasattr(response, 'tool_calls') and response.tool_calls:
-                logger.info(f"✅ STRANDS: Agent made {len(response.tool_calls)} tool calls")
-                # Return the tool call results
-                return {
-                    "status": "success",
-                    "mp_data": response_text,
-                    "mcp_actions": ["strands_analysis"],
-                    "tool_results": response_text,
-                    "workflow_used": "Strands Agent with Tools"
-                }
-            else:
-                logger.info("📝 STRANDS: Agent provided analysis without tool calls")
-                # Return the analysis
-                return {
-                    "status": "success",
-                    "mp_data": {"analysis": response_text, "formula": formula},
-                    "mcp_actions": ["strands_analysis"],
-                    "workflow_used": "Strands Agent Analysis"
-                }
-            
-        except Exception as e:
-            logger.error(f"💥 STRANDS: Error: {e}")
-            return {"status": "error", "message": str(e)}
+        # If we reach here, MCP wrapper is not available
+        logger.error(f"💥 STRANDS: MCP wrapper not available for formula: {formula}")
+        return {
+            "status": "error", 
+            "message": f"MCP wrapper not available for {formula}",
+            "mcp_actions": [],
+            "workflow_used": "Error - MCP Not Available"
+        }
     
     def _parse_agent_response(self, response: str) -> dict:
         """Extract action from Strands agent response"""
@@ -287,7 +340,7 @@ class StrandsSupervisorAgent:
             try:
                 detailed_data = self.mp_agent.select_material_by_id("mp-48")
                 if detailed_data and "error" not in str(detailed_data):
-                    structure_uri = "structure://mp_mp-48"
+                    structure_uri = "structure://mp-48"
                     logger.info(f"✅ STRANDS: Using graphite mp-48 for moire generation")
                 else:
                     logger.warning(f"⚠️ STRANDS: mp-48 not available, falling back to search")
@@ -342,7 +395,7 @@ class StrandsSupervisorAgent:
         
         material_id = material_id_match.group(1)
         detailed_data = self.mp_agent.select_material_by_id(material_id)
-        structure_uri = f"structure://mp_{material_id}"
+        structure_uri = f"structure://{material_id}"
         
         # Extract moire parameters from query
         twist_angle = 1.1  # magic angle default
@@ -426,7 +479,7 @@ Direct
         
         material_id = material_id_match.group(1)
         detailed_data = self.mp_agent.select_material_by_id(material_id)
-        structure_uri = f"structure://mp_{material_id}"
+        structure_uri = f"structure://{material_id}"
         
         # Call enhanced supercell building
         supercell_result = self.mp_agent.build_supercell(structure_uri, {"scaling_matrix": [[2,0,0],[0,2,0],[0,0,2]]})
@@ -442,31 +495,48 @@ Direct
     def _handle_visualization(self, formula: str) -> dict:
         """Handle visualization requests using enhanced MCP tools"""
         logger.info(f"📊 STRANDS: Using enhanced search for visualization of {formula}")
-        search_results = self.mp_agent.search_materials_by_formula(formula)
         
-        if not search_results:
-            return {"status": "error", "message": "Material not found"}
+        # Handle material ID directly
+        if formula.startswith("mp-"):
+            material_id = formula
+            detailed_data = self.mp_agent.select_material_by_id(material_id)
+        else:
+            search_results = self.mp_agent.search_materials_by_formula(formula)
+            if not search_results:
+                return {"status": "error", "message": "Material not found"}
+            
+            # Extract material ID and get detailed data
+            results_text = str(search_results)
+            material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
+            if not material_id_match:
+                return {"status": "error", "message": "No material ID found"}
+            
+            material_id = material_id_match.group(1)
+            detailed_data = self.mp_agent.select_material_by_id(material_id)
         
-        # Extract material ID and get detailed data
-        results_text = str(search_results)
-        material_id_match = re.search(r'Material ID: (mp-\d+)', results_text)
-        if not material_id_match:
-            return {"status": "error", "message": "No material ID found"}
+        # Create proper structure URI - use consistent format
+        structure_uri = f"structure://{material_id}"
         
-        material_id = material_id_match.group(1)
-        detailed_data = self.mp_agent.select_material_by_id(material_id)
-        structure_uri = f"structure://mp_{material_id}"
-        
-        # Call enhanced plotting
-        plot_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
-        logger.info(f"📊 STRANDS: Called enhanced plot_structure for {material_id}")
-        
-        return {
-            "status": "success", 
-            "mp_data": detailed_data, 
-            "mcp_actions": ["search_materials_by_formula", "select_material_by_id", "get_structure_data", "plot_structure"],
-            "mcp_results": {"plot_structure": plot_result}
-        }
+        # Call enhanced plotting with proper error handling
+        try:
+            plot_result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
+            logger.info(f"📊 STRANDS: Called enhanced plot_structure for {material_id}")
+            
+            return {
+                "status": "success", 
+                "mp_data": detailed_data, 
+                "mcp_actions": ["select_material_by_id", "plot_structure"],
+                "mcp_results": {"plot_structure": plot_result}
+            }
+        except Exception as e:
+            logger.error(f"💥 STRANDS: Visualization failed: {e}")
+            return {
+                "status": "success", 
+                "mp_data": detailed_data, 
+                "mcp_actions": ["select_material_by_id"],
+                "mcp_results": {},
+                "visualization_error": str(e)
+            }
     
     def _handle_formula_search(self, formula: str) -> dict:
         """Handle formula search requests using enhanced MCP tools"""
@@ -596,39 +666,52 @@ Direct
         """Process complex queries using agentic loops"""
         logger.info(f"🔄 STRANDS SUPERVISOR: Starting agentic loop for complex query")
         
-        # Check if query needs iterative solving
-        complexity_check = f"""Is this query complex enough to need iterative solving? 
-        Query: {query}
-        
-        Complex queries involve: multiple materials, optimization, parameter tuning, multi-step analysis.
-        Return JSON: {{"complex": bool, "reasoning": "string"}}"""
-        
         try:
-            response = self.agent(complexity_check)
-            # Handle different response types
-            if hasattr(response, 'text'):
-                response_text = response.text
-            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
-                content = response.message.content
-                if isinstance(content, list) and len(content) > 0:
-                    response_text = content[0].get('text', str(response))
-                else:
-                    response_text = str(content)
+            # Use agentic loop for multi-material queries
+            result = self.agentic_loop.iterative_solve(query)
+            
+            # Convert agentic loop result to supervisor format
+            if result.get("status") == "solved":
+                # Combine all materials data from iterations
+                combined_data = {}
+                mcp_actions = []
+                
+                # Process materials_data first (primary source)
+                materials_data = result.get("materials_data", {})
+                if materials_data:
+                    combined_data.update(materials_data)
+                    mcp_actions.extend(["search_materials_by_formula"] * len(materials_data))
+                
+                # Also check iterations for additional data
+                for iteration in result.get("iterations", []):
+                    action_result = iteration.get("action_result", {})
+                    if "status" in action_result and action_result["status"] != "error":
+                        # Extract formula from decision params
+                        decision = iteration.get("decision", {})
+                        formula = decision.get("params", {}).get("formula", "unknown")
+                        if formula != "unknown" and formula not in combined_data:
+                            combined_data[formula] = action_result
+                            mcp_actions.append("search_materials_by_formula")
+                
+                return {
+                    "status": "success",
+                    "mp_data": combined_data,
+                    "mcp_actions": mcp_actions,
+                    "workflow_used": "Agentic Loop",
+                    "materials_processed": list(combined_data.keys()),
+                    "iterations": len(result.get("iterations", [])),
+                    "materials_to_process": result.get("materials_to_process", [])
+                }
             else:
-                response_text = str(response)
-            
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                complexity = json.loads(json_match.group())
-                if complexity.get("complex", False):
-                    return self.agentic_loop.iterative_solve(query)
-            
-            # Fall back to standard processing
-            return self.process_query(query, "")
+                return {
+                    "status": result.get("status", "error"),
+                    "message": result.get("error", "Agentic loop processing failed"),
+                    "workflow_used": "Agentic Loop"
+                }
             
         except Exception as e:
-            logger.error(f"💥 STRANDS SUPERVISOR: Complexity check failed: {e}")
-            return self.process_query(query, "")
+            logger.error(f"💥 STRANDS SUPERVISOR: Agentic loop failed: {e}")
+            return {"status": "error", "message": str(e), "workflow_used": "Agentic Loop"}
     
     def intelligent_workflow_dispatch(self, query: str, poscar_text: str = None) -> dict:
         """Intelligently dispatch to appropriate workflow based on query and context"""
@@ -642,30 +725,48 @@ Direct
                 result['workflow_used'] = 'POSCAR Analysis'
                 return result
             
-            # Check for complex query indicators using Strands intelligence
-            # Check for specialized agent workflows
+            # Check for specialized MCP tool workflows first
             query_lower = query.lower()
             
-            # DFT parameter extraction
+            # Direct MCP tool routing for better performance
+            if "moire" in query_lower or "bilayer" in query_lower:
+                logger.info("🌀 STRANDS: Moire bilayer detected, using direct MCP workflow")
+                return self.process_query(query, "")
+            elif "supercell" in query_lower:
+                logger.info("🏗️ STRANDS: Supercell detected, using direct MCP workflow")
+                return self.process_query(query, "")
+            elif "plot" in query_lower or "visualiz" in query_lower:
+                logger.info("📊 STRANDS: Visualization detected, using direct MCP workflow")
+                return self.process_query(query, "")
+            elif "poscar" in query_lower and ("create" in query_lower or "structure" in query_lower):
+                logger.info("📋 STRANDS: POSCAR creation detected, using direct MCP workflow")
+                return self.process_query(query, "")
+            
+            # DFT parameter extraction - use dedicated DFT workflow
             dft_keywords = ['dft parameter', 'hopping parameter', 'hubbard u', 'tight binding', 'extract dft', 'dft calculation', 'hamiltonian']
             if any(keyword in query_lower for keyword in dft_keywords):
-                logger.info("🔬 STRANDS: DFT parameter extraction detected, using specialized workflow")
-                result = self.process_complex_query(query)
+                logger.info("🔬 STRANDS: DFT parameter extraction detected, using DFT agent")
+                result = self._execute_dft_workflow(query)
                 result['workflow_used'] = 'DFT Parameter Extraction'
                 return result
             
-            # Structure analysis (POSCAR matching)
-            structure_keywords = ['poscar', 'structure match', 'crystal structure', 'lattice parameter', 'space group', 'structure analysis']
-            if any(keyword in query_lower for keyword in structure_keywords):
+            # Structure analysis (POSCAR matching) - but NOT for visualization requests
+            structure_keywords = ['poscar', 'structure match', 'lattice parameter', 'space group', 'structure analysis']
+            # Exclude visualization requests from structure analysis workflow
+            if (any(keyword in query_lower for keyword in structure_keywords) and 
+                not any(viz_keyword in query_lower for viz_keyword in ['3d', 'visualiz', 'plot', 'crystal structure'])):
                 logger.info("🔍 STRANDS: Structure analysis detected, using specialized workflow")
                 result = self.process_complex_query(query)
                 result['workflow_used'] = 'Structure Analysis'
                 return result
             
-            # Multi-material comparison
+            # Multi-material comparison detection
+            materials_mentioned = self._extract_materials_from_query(query)
             comparison_keywords = ['compare', 'versus', 'vs', 'difference between', 'multiple materials', 'batch analysis']
-            if any(keyword in query_lower for keyword in comparison_keywords):
-                logger.info("🔄 STRANDS: Multi-material comparison detected, using agentic loop")
+            
+            if (any(keyword in query_lower for keyword in comparison_keywords) or 
+                len(materials_mentioned) > 1):
+                logger.info(f"🔄 STRANDS: Multi-material comparison detected (materials: {materials_mentioned}), using agentic loop")
                 result = self.process_complex_query(query)
                 result['workflow_used'] = 'Multi-Material Analysis'
                 return result
@@ -738,8 +839,21 @@ Direct
                 import traceback
                 logger.error(f"💥 STRANDS: Traceback: {traceback.format_exc()}")
             
-            # Default to simple query workflow
-            logger.info("💬 STRANDS: Using simple query workflow")
+            # Default to simple query workflow with enhanced detection
+            logger.info("💬 STRANDS: Using simple query workflow with enhanced detection")
+            
+            # Check for visualization keywords in the default case
+            query_lower = query.lower()
+            if "3d" in query_lower or "visualiz" in query_lower or "plot" in query_lower or "structure" in query_lower:
+                logger.info("📊 STRANDS: Visualization detected in default workflow, forcing visualization path")
+                formula = self._extract_formula_from_query(query)
+                if formula:
+                    viz_result = self._handle_visualization(formula)
+                    viz_result['workflow_used'] = 'Simple Query with Visualization'
+                    return viz_result
+                else:
+                    logger.warning(f"⚠️ STRANDS: No formula extracted for visualization from query: {query[:50]}")
+            
             result = self.process_query(query, "")
             result['workflow_used'] = 'Simple Query'
             return result
@@ -944,31 +1058,55 @@ Direct
         try:
             # Extract material ID from query
             material_id = self._extract_formula_from_query(query)
+            logger.info(f"🔬 STRANDS DFT: Processing {material_id}")
             
-            # Get MP data first
-            mcp_wrapper = get_mcp_wrapper()
-            if mcp_wrapper:
-                search_result = mcp_wrapper.search_material(material_id)
-                if search_result["status"] == "success":
-                    # Use DFT agent to extract parameters
-                    dft_result = self.dft_agent.extract_dft_parameters(material_id, search_result["data"])
-                    
-                    # Generate Hamiltonian code if requested
-                    if "hamiltonian" in query.lower() or "tight binding" in query.lower():
-                        hamiltonian_code = self.dft_agent.get_tight_binding_hamiltonian(material_id, dft_result)
-                        dft_result["hamiltonian_code"] = hamiltonian_code
-                    
-                    return {
-                        "status": "success",
-                        "mp_data": search_result["data"],
-                        "dft_parameters": dft_result,
-                        "mcp_actions": ["search_materials_by_formula", "extract_dft_parameters"]
-                    }
+            # Get MP data first - use select_material_by_id for specific material
+            if material_id.startswith("mp-"):
+                try:
+                    # Get detailed material data
+                    detailed_result = self.mp_agent.select_material_by_id(material_id)
+                    if detailed_result:
+                        # Parse the detailed result to extract properties
+                        mp_data = self._parse_mp_data(detailed_result, material_id)
+                        logger.info(f"✅ STRANDS DFT: Got MP data for {material_id}")
+                    else:
+                        return {"status": "error", "message": f"Material {material_id} not found"}
+                except Exception as e:
+                    logger.error(f"💥 STRANDS DFT: MP lookup failed: {e}")
+                    return {"status": "error", "message": f"Failed to get material data: {e}"}
+            else:
+                # Search by formula first
+                mcp_wrapper = get_mcp_wrapper()
+                if mcp_wrapper:
+                    search_result = mcp_wrapper.search_material(material_id)
+                    if search_result["status"] == "success":
+                        mp_data = search_result["data"]
+                    else:
+                        return {"status": "error", "message": "Failed to search material"}
+                else:
+                    return {"status": "error", "message": "MCP wrapper not available"}
             
-            return {"status": "error", "message": "Failed to get material data"}
+            # Use DFT agent to extract parameters
+            logger.info(f"🧮 STRANDS DFT: Extracting parameters for {material_id}")
+            dft_result = self.dft_agent.extract_dft_parameters(material_id, mp_data)
+            
+            # Generate Hamiltonian code if requested
+            if "hamiltonian" in query.lower() or "tight binding" in query.lower():
+                logger.info(f"⚛️ STRANDS DFT: Generating Hamiltonian code")
+                hamiltonian_code = self.dft_agent.get_tight_binding_hamiltonian(material_id, dft_result)
+                dft_result["hamiltonian_code"] = hamiltonian_code
+            
+            return {
+                "status": "success",
+                "mp_data": mp_data,
+                "dft_parameters": dft_result,
+                "mcp_actions": ["select_material_by_id", "extract_dft_parameters"],
+                "workflow_used": "DFT Parameter Extraction"
+            }
+            
         except Exception as e:
-            logger.error(f"💥 STRANDS: DFT workflow failed: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"💥 STRANDS DFT: Workflow failed: {e}")
+            return {"status": "error", "message": str(e), "workflow_used": "DFT Parameter Extraction"}
     
     def _execute_structure_workflow(self, query: str) -> dict:
         """Execute structure analysis workflow"""
@@ -1018,6 +1156,48 @@ Direct
 0.0000000000000000  0.0000000000000000  0.0000000000000000
 0.2500000000000000  0.2500000000000000  0.2500000000000000"""
     
+    def _parse_mp_data(self, detailed_result, material_id: str) -> dict:
+        """Parse Materials Project data from detailed result"""
+        try:
+            # Extract data from the detailed result text
+            result_text = str(detailed_result)
+            
+            # Parse band gap
+            band_gap = 0.0
+            import re
+            bg_match = re.search(r'Band Gap: ([\d\.]+) eV', result_text)
+            if bg_match:
+                band_gap = float(bg_match.group(1))
+            
+            # Parse formation energy
+            formation_energy = 0.0
+            fe_match = re.search(r'Formation Energy: ([\d\.-]+) eV/atom', result_text)
+            if fe_match:
+                formation_energy = float(fe_match.group(1))
+            
+            # Parse lattice parameters
+            lattice_constant = 5.0
+            lc_match = re.search(r'a=([\d\.]+)', result_text)
+            if lc_match:
+                lattice_constant = float(lc_match.group(1))
+            
+            return {
+                "material_id": material_id,
+                "band_gap": band_gap,
+                "formation_energy": formation_energy,
+                "lattice_constant": lattice_constant,
+                "source": "Materials Project"
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ STRANDS: Failed to parse MP data: {e}")
+            return {
+                "material_id": material_id,
+                "band_gap": 1.0,
+                "formation_energy": 0.0,
+                "lattice_constant": 5.0,
+                "source": "fallback"
+            }
+    
     def _extract_material_context(self, query: str) -> Dict[str, Any]:
         """Extract material information from query for Braket circuit generation."""
         query_lower = query.lower()
@@ -1066,3 +1246,36 @@ Direct
             return "Si"  # fallback
         except Exception:
             return "Si"
+    
+    def _force_mcp_restart(self):
+        """Force restart MCP server to recover from failures"""
+        try:
+            logger.info("🔄 STRANDS: Force restarting MCP server...")
+            initialize_mcp_wrapper(self.mp_agent)
+            import time
+            time.sleep(2)  # Give server time to start
+            logger.info("✅ STRANDS: MCP server restarted")
+        except Exception as e:
+            logger.error(f"💥 STRANDS: MCP restart failed: {e}")
+    
+    def _safe_mcp_call(self, mcp_func, max_retries=2):
+        """Safely execute MCP call with retries"""
+        for attempt in range(max_retries):
+            try:
+                result = mcp_func()
+                if result and result.get("status") == "success":
+                    return result
+                elif attempt < max_retries - 1:
+                    logger.warning(f"⚠️ STRANDS: MCP call failed, retrying ({attempt + 1}/{max_retries})")
+                    self._force_mcp_restart()
+                    import time
+                    time.sleep(1)
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"⚠️ STRANDS: MCP exception, retrying: {e}")
+                    self._force_mcp_restart()
+                    import time
+                    time.sleep(1)
+                else:
+                    logger.error(f"💥 STRANDS: MCP call failed after {max_retries} attempts: {e}")
+        return None
