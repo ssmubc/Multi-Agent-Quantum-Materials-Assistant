@@ -86,15 +86,34 @@ class MCPToolsWrapper:
                     "mcp_action": "plot_structure"
                 }
             
-            structure_uri = f"structure://mp_{material_id}"
+            structure_uri = f"structure://{material_id}"
             result = self.mp_agent.plot_structure(structure_uri, [1, 1, 1])
             
-            logger.info(f"✅ MCP WRAPPER: Created visualization for {material_id}")
-            return {
-                "status": "success",
-                "data": result,
-                "mcp_action": "plot_structure"
-            }
+            # Check if result contains actual image data
+            if result and len(result) > 0:
+                image_content = result[0]  # First item should be ImageContent
+                if hasattr(image_content, 'data') and image_content.data:
+                    logger.info(f"✅ MCP WRAPPER: Created visualization for {material_id} ({len(image_content.data)} chars)")
+                    return {
+                        "status": "success",
+                        "data": result,
+                        "image_data": image_content.data,
+                        "mcp_action": "plot_structure"
+                    }
+                else:
+                    logger.warning(f"⚠️ MCP WRAPPER: Empty image data for {material_id}")
+                    return {
+                        "status": "empty_image",
+                        "message": "Visualization generated but image data is empty",
+                        "mcp_action": "plot_structure"
+                    }
+            else:
+                logger.warning(f"⚠️ MCP WRAPPER: No visualization result for {material_id}")
+                return {
+                    "status": "no_result",
+                    "message": "No visualization result returned",
+                    "mcp_action": "plot_structure"
+                }
         except Exception as e:
             logger.error(f"💥 MCP WRAPPER: Visualization failed: {e}")
             return {
@@ -117,7 +136,7 @@ class MCPToolsWrapper:
                     "mcp_action": "build_supercell"
                 }
             
-            structure_uri = f"structure://mp_{material_id}"
+            structure_uri = f"structure://{material_id}"
             
             if not scaling_matrix:
                 scaling_matrix = [[2,0,0],[0,2,0],[0,0,2]]
@@ -152,7 +171,7 @@ class MCPToolsWrapper:
                     "mcp_action": "moire_homobilayer"
                 }
             
-            structure_uri = f"structure://mp_{material_id}"
+            structure_uri = f"structure://{material_id}"
             
             result = self.mp_agent.moire_homobilayer(structure_uri, interlayer_spacing, 10, twist_angle, 15.0)
             
@@ -275,7 +294,7 @@ class MCPToolsWrapper:
                 }
             
             # Then get the structure data using the URI
-            structure_uri = f"structure://mp_{material_id}"
+            structure_uri = f"structure://{material_id}"
             result = self.mp_agent.get_structure_data(structure_uri, format)
             
             if result:
