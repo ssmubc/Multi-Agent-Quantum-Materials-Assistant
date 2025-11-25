@@ -56,43 +56,39 @@ class StrandsAgenticLoop:
     def iterative_solve(self, initial_query: str) -> dict:
         """Solve complex problems through iterative agent loops"""
         
+        # Extract materials from query dynamically
+        materials_to_process = self._extract_materials_from_query(initial_query)
+        logger.info(f"🔄 AGENTIC LOOP: Detected materials: {materials_to_process}")
+        
         current_query = initial_query
         iteration = 0
-        results = {"iterations": []}
+        results = {"iterations": [], "materials_data": {}, "materials_to_process": materials_to_process}
         
         while iteration < self.max_iterations:
             iteration += 1
             logger.info(f"🔄 AGENTIC LOOP: Iteration {iteration}")
             
-            # Enhanced agent decision with access to improved agents
-            decision_prompt = f"""
-            Iteration {iteration} of quantum materials analysis.
+            # Check progress and determine next action
+            progress_status = self._assess_progress(results, materials_to_process, current_query)
             
-            Current query: {current_query}
-            Previous results: {json.dumps(results.get("iterations", []), indent=2)}
+            if progress_status["solved"]:
+                logger.info(f"✅ AGENTIC LOOP: Problem solved in {iteration-1} iterations")
+                results["status"] = "solved"
+                break
             
-            Available enhanced capabilities:
-            - StrandsCoordinator: Multi-agent workflow orchestration
-            - StrandsDFTAgent: Intelligent DFT parameter extraction with validation
-            - StrandsStructureAgent: Hybrid pymatgen + AI structure matching
-            - MCP Tools: search, plot_structure, build_supercell, moire_homobilayer
-            
-            Analyze the current state and decide:
-            1. Is the problem solved? (yes/no)
-            2. What's the next action needed?
-            3. Which agent/tool should handle it? (coordinator/dft_agent/structure_agent/mcp_tool)
-            4. What parameters to use?
-            5. Should we use batch processing for multiple operations?
-            
-            Return JSON: {{"solved": bool, "next_action": "string", "agent_type": "string", "tool_name": "string", "params": {{}}, "use_batch": bool, "reasoning": "string"}}
-            """
+            # Get next action based on progress
+            decision = progress_status["next_decision"]
             
             try:
-                response = self.agent(decision_prompt)
-                decision = self._parse_decision(response)
-                
-                # Execute the decided action with improved agents
+                # Execute the decided action
                 action_result = self._execute_enhanced_action(decision, current_query, results)
+                
+                # Store material data if this was a search
+                if decision.get("agent_type") == "mcp_tool" and decision.get("tool_name") == "search":
+                    formula = decision.get("params", {}).get("formula")
+                    if formula and action_result.get("status") != "error":
+                        results["materials_data"][formula] = action_result
+                        logger.info(f"✅ AGENTIC LOOP: Stored data for {formula}")
                 
                 # Store iteration result
                 iteration_data = {
@@ -103,13 +99,7 @@ class StrandsAgenticLoop:
                 }
                 results["iterations"].append(iteration_data)
                 
-                # Check if problem is solved
-                if decision.get("solved", False):
-                    logger.info(f"✅ AGENTIC LOOP: Problem solved in {iteration} iterations")
-                    results["status"] = "solved"
-                    break
-                
-                # Update query for next iteration based on results
+                # Update query for next iteration
                 current_query = self._generate_next_query(decision, action_result, current_query)
                 
             except Exception as e:
@@ -228,7 +218,13 @@ class StrandsAgenticLoop:
         try:
             if tool_name == "search":
                 formula = params.get("formula", "Si")
-                return self.mp_agent.search(formula)
+                logger.info(f"🔍 AGENTIC LOOP: Searching for material {formula}")
+                # Use search_materials_by_formula for better results
+                result = self.mp_agent.search_materials_by_formula(formula)
+                if result:
+                    return {"status": "success", "data": result, "formula": formula}
+                else:
+                    return {"status": "error", "message": f"No results for {formula}"}
             elif tool_name == "moire_homobilayer":
                 structure_uri = params.get("structure_uri")
                 twist_angle = params.get("twist_angle", 1.1)
@@ -249,34 +245,79 @@ class StrandsAgenticLoop:
             return {"status": "action_executed", "tool": tool_name}
             
         except Exception as e:
+            logger.error(f"💥 AGENTIC LOOP: MCP action {tool_name} failed: {e}")
             return {"status": "error", "message": str(e)}
+    
+    def _extract_materials_from_query(self, query: str) -> list:
+        """Extract materials from query dynamically"""
+        import re
+        
+        # Material name to formula mapping
+        material_map = {
+            'silicon': 'Si', 'germanium': 'Ge', 'carbon': 'C', 'graphene': 'C',
+            'diamond': 'C', 'tin': 'Sn', 'lead': 'Pb', 'gallium arsenide': 'GaAs',
+            'gallium nitride': 'GaN', 'indium phosphide': 'InP', 'titanium dioxide': 'TiO2',
+            'silicon dioxide': 'SiO2', 'aluminum oxide': 'Al2O3', 'molybdenum disulfide': 'MoS2',
+            'tungsten disulfide': 'WS2', 'boron nitride': 'BN', 'h-bn': 'BN'
+        }
+        
+        query_lower = query.lower()
+        materials = []
+        
+        # Check for material names
+        for name, formula in material_map.items():
+            if name in query_lower and formula not in materials:
+                materials.append(formula)
+        
+        # Check for chemical formulas directly
+        formula_pattern = r'\b[A-Z][a-z]?(?:\d+)?(?:[A-Z][a-z]?\d*)*\b'
+        formula_matches = re.findall(formula_pattern, query)
+        for formula in formula_matches:
+            if len(formula) <= 10 and formula not in ['VQE', 'DFT', 'MP'] and formula not in materials:
+                materials.append(formula)
+        
+        return materials if materials else ['Si']  # Default fallback
+    
+    def _assess_progress(self, results: dict, materials_to_process: list, current_query: str) -> dict:
+        """Assess current progress and determine next action"""
+        materials_data = results.get("materials_data", {})
+        processed_materials = list(materials_data.keys())
+        
+        # Check if all materials have been processed
+        unprocessed = [m for m in materials_to_process if m not in processed_materials]
+        
+        if not unprocessed:
+            # All materials processed, ready for comparison/analysis
+            if "compare" in current_query.lower() or "dft" in current_query.lower():
+                return {
+                    "solved": True,
+                    "next_decision": {
+                        "agent_type": "comparison",
+                        "reasoning": f"All {len(materials_to_process)} materials processed, ready for comparison"
+                    }
+                }
+            else:
+                return {"solved": True, "next_decision": {}}
+        
+        # Process next material
+        next_material = unprocessed[0]
+        return {
+            "solved": False,
+            "next_decision": {
+                "agent_type": "mcp_tool",
+                "tool_name": "search",
+                "params": {"formula": next_material},
+                "reasoning": f"Processing material {next_material} ({len(processed_materials)+1}/{len(materials_to_process)})"
+            }
+        }
     
     def _generate_next_query(self, decision: dict, action_result: dict, current_query: str) -> str:
         """Generate next iteration query based on results"""
         
-        next_query_prompt = f"""
-        Based on the current analysis results, what should be the next query?
-        
-        Current query: {current_query}
-        Last action: {decision.get("next_action")}
-        Action result: {json.dumps(action_result, indent=2)}
-        
-        Generate a refined query for the next iteration that addresses any gaps or builds on the results.
-        """
-        
-        try:
-            response = self.agent(next_query_prompt)
-            
-            # Enhanced query refinement based on action results
-            if "error" in str(action_result):
-                refined_query = f"Fix the error in: {current_query}. Error: {action_result.get('message', 'Unknown error')}"
-            elif "batch_completed" in str(action_result):
-                refined_query = f"Analyze batch results for: {current_query}"
-            elif "dft_parameters" in str(action_result):
-                refined_query = f"Generate quantum simulation using DFT parameters for: {current_query}"
-            else:
-                refined_query = response.strip()
-            
-            return refined_query
-        except:
-            return current_query  # Fallback to current query
+        # Enhanced query refinement based on action results
+        if "error" in str(action_result):
+            return f"Fix the error in: {current_query}. Error: {action_result.get('message', 'Unknown error')}"
+        elif "comparison" in decision.get("agent_type", ""):
+            return f"Complete comparison analysis for: {current_query}"
+        else:
+            return current_query  # Keep current query for material processing
