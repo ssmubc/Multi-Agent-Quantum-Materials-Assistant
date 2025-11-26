@@ -189,57 +189,82 @@ Generate VQE code for mp-149 (silicon) with active space reduction
 ## Directories
 
 ```
+├── .ebextensions/
+│   ├── 01_environment.config      # Environment variables configuration
+│   ├── 01_streamlit.config        # Streamlit server configuration
+│   ├── 02_https_alb.config         # HTTPS Application Load Balancer setup
+│   ├── 03_cloudfront_security.config # CloudFront security headers
+│   ├── 04_mcp_setup.config         # Materials Project MCP server setup
+│   ├── 05_security_headers.config  # Additional security headers
+│   └── 06_cloudfront_headers.config # CloudFront integration headers
 ├── agents/
 │   ├── strands_supervisor.py      # Main Strands supervisor with intelligent routing
 │   ├── strands_agentic_loop.py    # Multi-material iterative analysis
+│   ├── strands_coordinator.py     # Strands workflow coordination
 │   ├── strands_dft_agent.py       # DFT parameter extraction
 │   └── strands_structure_agent.py # POSCAR and structure analysis
 ├── config/
 │   ├── auth_module.py             # Authentication configuration
 │   └── .env.example               # Environment variables template
 ├── deployment/
+│   ├── setup_cloudfront.py        # CloudFront distribution setup script
+│   ├── deploy_fixed_integration.py # Deployment automation script
 │   ├── Dockerfile                 # Docker container configuration
 │   ├── .ebignore                  # Elastic Beanstalk ignore rules
-│   ├── .dockerignore              # Docker ignore rules
-│   ├── .ebextensions/             # EB configuration files
-│   └── deploy_fixed_integration.py # Deployment automation script
+│   └── .dockerignore              # Docker ignore rules
 ├── docs/
 │   ├── deployment-guide.md        # Complete deployment instructions
 │   ├── agentic-architecture.md    # Strands workflow documentation
-│   └── braket-integration.md      # Quantum computing integration
+│   ├── braket-integration.md      # Quantum computing integration
+│   ├── materials-project-mcp-integration.md # MCP server documentation
+│   └── user-guide.md              # User interface guide
 ├── enhanced_mcp_materials/
 │   ├── local_server.py            # Enhanced MCP server with auto-recovery
 │   ├── aws_server.py              # AWS-optimized MCP server
-│   └── moire_helper.py            # Moire bilayer generation tools
+│   ├── moire_helper.py            # Moire bilayer generation tools
+│   ├── structure_helper.py        # Crystal structure processing
+│   ├── plot_helper.py             # 3D structure visualization tools
+│   ├── server.py                  # Main MCP server implementation
+│   └── data_class.py              # Materials data structures
 ├── models/
 │   ├── base_model.py              # Base class with streaming support
 │   ├── nova_pro_model.py          # Amazon Nova Pro implementation
 │   ├── llama4_model.py            # Meta Llama 4 Scout implementation
-│   ├── deepseek_model.py          # DeepSeek R1 implementation
-│   └── qwen_model.py              # Qwen 3-32B implementation
+│   ├── llama3_model.py            # Meta Llama 3 70B implementation
+│   ├── claude_sonnet_model.py     # Anthropic Claude Sonnet 4.5 implementation
+│   ├── claude_opus_model.py       # Anthropic Claude Opus 4.1 implementation
+│   ├── openai_model.py            # OpenAI OSS-120B implementation
+│   ├── qwen_model.py              # Qwen 3-32B implementation
+│   └── deepseek_model.py          # DeepSeek R1 implementation
 ├── setup/
 │   ├── setup_secrets.py           # AWS Secrets Manager setup
 │   └── install_braket.py          # Amazon Braket installation
 ├── utils/
+│   ├── enhanced_mcp_client.py     # Robust MCP client with retries
 │   ├── mcp_tools_wrapper.py       # MCP integration wrapper
 │   ├── braket_integration.py      # Amazon Braket quantum circuits
-│   ├── enhanced_mcp_client.py     # Robust MCP client with retries
-│   └── secrets_manager.py         # AWS Secrets Manager utilities
+│   ├── secrets_manager.py         # AWS Secrets Manager utilities
+│   ├── logging_display.py         # MCP logging and display utilities
+│   └── debug_logger.py            # Debug logging functionality
 ├── BraketMCP/                     # Amazon Braket MCP server
 ├── app.py                         # Main Streamlit application
 ├── demo_mode.py                   # Demo authentication stub
+├── run_local.py                   # Local development helper script
 └── requirements.txt               # Python dependencies
 ```
 
 **Key Directories:**
+- `/.ebextensions`: AWS Elastic Beanstalk configuration files for deployment
 - `/agents`: Strands agentic workflow implementations
 - `/config`: Configuration files and authentication
-- `/deployment`: AWS Elastic Beanstalk deployment files
-- `/docs`: Comprehensive documentation
+- `/deployment`: AWS deployment scripts including CloudFront setup
+- `/docs`: Comprehensive documentation with guides and architecture
 - `/enhanced_mcp_materials`: Materials Project MCP server with reliability enhancements
-- `/models`: LLM model implementations with streaming support
-- `/setup`: Setup utilities for AWS and quantum computing integration
-- `/utils`: Core utilities for MCP, Braket, and AWS integration
+- `/models`: All 8 LLM model implementations with streaming support
+- `/setup`: Setup utilities for AWS Secrets Manager and quantum computing integration
+- `/utils`: Core utilities for MCP, Braket, AWS integration, and logging
+- `/BraketMCP`: Amazon Braket MCP server for quantum circuit analysis
+- `/MaterialProjectMCP`: Materials Project MCP server (mcp.science framework)
 
 ## Model Configurations
 
