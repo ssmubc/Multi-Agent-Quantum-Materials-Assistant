@@ -169,8 +169,8 @@ streamlit run app.py --server.port 8501
 **Time Required: 30-45 minutes**
 
 ### Required AWS Access
-- [ ] AWS account with billing enabled
-- [ ] IAM permissions for Elastic Beanstalk, Bedrock, Secrets Manager
+- [ ] AWS account 
+- [ ] IAM permissions for Elastic Beanstalk, Bedrock, Secrets Manager (as shown below)
 - [ ] AWS CLI installed and configured
 - [ ] EB CLI installed (only needed for command line deployment):
   ```bash
