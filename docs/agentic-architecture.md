@@ -14,7 +14,7 @@ The Quantum Matter platform uses an advanced agentic architecture combining AWS 
 
 The platform uses 5 specialized AWS Strands agents for different workflows:
 
-#### Supervisor Agent (`strands_supervisor.py`)
+#### Supervisor Agent ([`strands_supervisor.py`](../agents/strands_supervisor.py))
 - **Role**: Main workflow coordinator and query router
 - **Functionality**: 
   - Analyzes incoming queries to determine workflow type
@@ -26,7 +26,7 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
   - POSCAR Analysis → Structure matching workflow
   - Complex Query → Multi-agent coordination
 
-#### Coordinator Agent (`strands_coordinator.py`)
+#### Coordinator Agent ([`strands_coordinator.py`](../agents/strands_coordinator.py))
 - **Role**: Multi-agent task orchestration
 - **Functionality**:
   - Manages dependencies between agents
@@ -38,7 +38,7 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
   - Complex quantum simulation workflows
   - Batch processing tasks
 
-#### DFT Agent (`strands_dft_agent.py`)
+#### DFT Agent ([`strands_dft_agent.py`](../agents/strands_dft_agent.py))
 - **Role**: Density Functional Theory parameter extraction
 - **Functionality**:
   - Extracts DFT parameters from literature and databases
@@ -50,7 +50,7 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
   - Exchange-correlation functional recommendations
   - K-point mesh and cutoff energy guidelines
 
-#### Structure Agent (`strands_structure_agent.py`)
+#### Structure Agent ([`strands_structure_agent.py`](../agents/strands_structure_agent.py))
 - **Role**: Crystal structure analysis and matching
 - **Functionality**:
   - Analyzes POSCAR files and crystal structures
@@ -62,7 +62,7 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
   - Materials Project API for database matching
   - Crystallographic analysis tools
 
-#### Agentic Loop Agent (`strands_agentic_loop.py`)
+#### Agentic Loop Agent ([`strands_agentic_loop.py`](../agents/strands_agentic_loop.py))
 - **Role**: Iterative problem solving for complex queries
 - **Functionality**:
   - Breaks down complex problems into subtasks
@@ -78,7 +78,7 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
 
 The platform integrates two main MCP servers for external data access:
 
-#### Enhanced Materials Project MCP Server (`enhanced_mcp_materials/`)
+#### Enhanced Materials Project MCP Server ([`enhanced_mcp_materials/`](../enhanced_mcp_materials/))
 - **Purpose**: Robust access to Materials Project database with 8 specialized tools
 - **Functionality**:
   - Material search by chemical formula
@@ -91,7 +91,7 @@ The platform integrates two main MCP servers for external data access:
   - Auto-recovery and fallback mechanisms
 - **8 MCP Tools**: See [Materials Project MCP Integration Guide](materials-project-mcp-integration.md) for complete tool documentation
 
-#### Amazon Braket MCP Server (`BraketMCP/`)
+#### Amazon Braket MCP Server ([`BraketMCP/`](../BraketMCP/))
 - **Purpose**: Educational quantum circuit analysis and visualization
 - **Functionality**:
   - Quantum circuit creation (Bell, GHZ, VQE demonstrations)
