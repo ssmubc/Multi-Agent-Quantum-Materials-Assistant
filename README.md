@@ -523,6 +523,9 @@ Licenses of libraries and tools used by the system are listed below:
 - For Strands Agents SDK agentic workflow implementation - [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 - For Amazon Braket MCP server - [Apache License 2.0](BraketMCP/amazon-braket-mcp-server/LICENSE)
 
+**AWS Bedrock Foundation Models**
+- For all 8 LLM models (Nova Pro, Llama 4 Scout, Llama 3 70B, Claude Sonnet 4.5, Claude Opus 4.1, OpenAI OSS-120B, Qwen 3-32B, DeepSeek R1) - [AWS Bedrock Third-Party Model Licenses](https://aws.amazon.com/legal/bedrock/third-party-models/)
+
 **Materials Project API**
 - For Materials Project data access - "Materials Project API is freely available for academic and non-commercial use"
 
