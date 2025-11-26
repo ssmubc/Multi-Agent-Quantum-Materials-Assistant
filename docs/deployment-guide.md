@@ -58,9 +58,14 @@ This guide provides step-by-step instructions for:
 git clone <repository-url>
 cd Quantum_Matter_Streamlit_App
 
-# Install dependencies
+# Install dependencies (includes AWS Strands agents)
 pip install -r requirements.txt
 ```
+
+**Note**: This automatically installs:
+- `strands-agents>=1.17.0` - AWS Strands agent framework
+- `strands-agents-tools>=0.2.16` - AWS service integration tools
+- All other required dependencies for MCP and quantum computing
 
 ### Step 2: Configure API Keys (2 minutes)
 ```bash
