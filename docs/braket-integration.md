@@ -1,10 +1,10 @@
 # Amazon Braket Integration Guide
 
 ## Overview
-This guide explains how to set up and use Amazon Braket quantum computing features in the Quantum Matter application.
+This guide explains how to set up and use Amazon Braket MCP integration in the Quantum Matter application for quantum circuit design, analysis, and visualization.
 
-## What is Amazon Braket?
-Amazon Braket is AWS's quantum computing service that provides access to quantum simulators and real quantum hardware from multiple providers (IonQ, Rigetti, Oxford Quantum Computing).
+## What is Amazon Braket MCP?
+The Amazon Braket MCP integration provides quantum circuit analysis, visualization, and educational tools for quantum computing development. It processes quantum circuits through the Braket MCP server to generate detailed ASCII visualizations, circuit analysis, and step-by-step explanations without executing on actual quantum hardware.
 
 ## AWS Credentials and Permissions
 
@@ -59,20 +59,15 @@ Your AWS credentials need these permissions for Braket integration:
 **For Elastic Beanstalk:**
 1. Go to IAM Console → Roles
 2. Find `aws-elasticbeanstalk-ec2-role`
-3. Add inline policy with Braket permissions (JSON above)
-4. Deploy application - permissions are automatically available
+3. Click **Add permissions** → **Attach policies**
+4. Search and select `AmazonBraketFullAccess` (recommended)
+5. Click **Add permissions**
+6. Deploy application - permissions are automatically available
 
 ## Quantum Simulators Used
 
-### Local Simulator (Default)
-- **Type**: Classical simulation on your local machine
-- **Provider**: Amazon Braket SDK
-- **Cost**: Free
-- **Use Case**: Development and testing
-- **Limitations**: Limited to ~25 qubits due to memory constraints
-
 ### AWS Simulators
-- **SV1**: State vector simulator (up to 34 qubits)
+- **SV1**: State vector simulator (up to 34 qubits) - **Default**
 - **TN1**: Tensor network simulator (up to 50 qubits)
 - **DM1**: Density matrix simulator (up to 17 qubits with noise)
 - **Cost**: Pay per simulation (~$0.075 per task)
@@ -108,13 +103,13 @@ pip install fastmcp>=0.5.0
 python -c "from braket.circuits import Circuit; print('Braket installed successfully')"
 ```
 
-## Using Braket Features
+## Using Braket MCP Features
 
 ### Framework Selection
 In the Streamlit app sidebar:
 1. Select "Braket Framework" from the dropdown
-2. The app will generate Braket-specific quantum circuits
-3. Circuits will run on the local simulator by default
+2. The app will generate Braket-specific quantum circuits with detailed analysis
+3. Circuits are processed through the Braket MCP server for comprehensive visualization and educational insights
 
 ### Example Usage
 ```python
@@ -135,12 +130,26 @@ result = task.result()
 print(result.measurement_counts)
 ```
 
-### Available Features
-- **Bell pair circuits**: Quantum entanglement demonstrations
-- **GHZ states**: Multi-qubit entangled states
-- **Quantum Fourier Transform**: Fundamental quantum algorithm
-- **VQE circuits**: Variational quantum eigensolvers for materials science
-- **Custom quantum algorithms**: Based on your prompts
+### Available MCP Tools
+
+The application uses these specific Braket MCP tools for quantum circuit analysis:
+
+#### Circuit Creation Tools
+- `create_bell_pair_circuit()` - Creates entangled two-qubit Bell states
+- `create_ghz_circuit(num_qubits)` - Multi-qubit GHZ entangled states
+- `create_vqe_circuit(material_data)` - VQE circuits optimized for materials science
+- `create_custom_circuit(num_qubits, gates)` - Custom circuits with specific gate sequences
+
+#### Analysis and Visualization Tools
+- `create_circuit_visualization(circuit, name)` - Generates ASCII diagrams and detailed analysis
+- `list_devices()` - Lists available quantum simulators and hardware
+- `get_braket_status()` - Returns integration status and capabilities
+
+#### Educational Features
+- **ASCII Circuit Diagrams**: Text-based visualizations (e.g., `q0: ─H──●──M─`)
+- **Step-by-step Analysis**: Gate sequence explanations and quantum behavior predictions
+- **Materials Integration**: VQE ansatz selection based on band gaps and formation energies
+- **Circuit Complexity Analysis**: Depth, gate counts, and estimated runtime assessments
 
 ## Workspace Organization
 The setup creates a workspace directory structure:
@@ -153,17 +162,36 @@ The setup creates a workspace directory structure:
 
 ## Cost Management
 
-### Free Tier Usage
-- Local simulator: Always free
-- AWS simulators: First 1 hour free per month
-- Real hardware: No free tier
+### Braket MCP Usage
+- **Circuit Analysis**: Completely free - no AWS charges
+- **ASCII Visualizations**: Generated locally at no cost
+- **Educational Features**: Unlimited learning and exploration
+- **Circuit Design**: Test and validate quantum algorithms without execution costs
 
-### Cost Optimization Tips
-1. **Start with local simulator** for development
-2. **Use AWS simulators** for larger circuits
-3. **Reserve real hardware** for final experiments
-4. **Monitor costs** in AWS Billing Console
-5. **Set billing alerts** to avoid surprises
+### MCP Integration Capabilities
+
+The Braket MCP server provides:
+
+```python
+# Example MCP tool usage in the application
+bell_circuit = create_bell_pair_circuit()
+# Returns: ASCII visualization, gate analysis, quantum behavior explanations
+
+ghz_circuit = create_ghz_circuit(num_qubits=4) 
+# Returns: Multi-qubit entanglement analysis with step-by-step breakdown
+
+vqe_circuit = create_vqe_circuit(material_data={"formula": "H2", "band_gap": 0.5})
+# Returns: Materials-optimized ansatz with Jordan-Wigner mapping
+
+devices = list_devices()
+# Returns: Available simulators (SV1, TN1, DM1) and quantum hardware status
+```
+
+**Key Benefits:**
+- **Professional Analysis**: Uses Braket's quantum computing framework standards
+- **Educational Value**: Detailed explanations of quantum phenomena and gate operations
+- **Materials Focus**: VQE circuits tailored for molecular and solid-state systems
+- **Cost-Free Learning**: Comprehensive quantum education without execution charges
 
 ## Troubleshooting
 
@@ -194,10 +222,7 @@ The setup creates a workspace directory structure:
 ## Advanced Configuration
 
 ### Custom Device Selection
-```bash
-# Set default quantum device
-export BRAKET_DEFAULT_DEVICE_ARN=arn:aws:braket:us-east-1::device/qpu/ionq/Harmony
-```
+**Note**: The application currently uses SV1 simulator by default. Custom device selection would require code modifications to the `braket_integration.py` file.
 
 ### S3 Result Storage
 ```bash
@@ -213,10 +238,49 @@ export BRAKET_S3_PREFIX=experiments/2024/
 4. **Use least privilege** IAM permissions
 5. **Store sensitive data** in AWS Secrets Manager
 
+## Sample Queries
+
+Try these example queries in the Quantum Matter application to explore Braket MCP capabilities:
+
+### Quantum Entanglement
+```
+"Create a Bell pair circuit and show me the quantum entanglement"
+"Generate a 4-qubit GHZ state and explain the entanglement pattern"
+"What happens when I measure entangled qubits?"
+```
+
+### Materials Science Applications
+```
+"Create a VQE circuit for H2 molecule optimization"
+"Generate a quantum circuit for TiO2 electronic structure analysis"
+"Show me a VQE ansatz for silicon with band gap 1.1 eV"
+```
+
+### Quantum Algorithm Learning
+```
+"Explain quantum superposition with a Hadamard gate example"
+"Create a custom 3-qubit circuit with rotation gates"
+"What quantum devices are available for my circuits?"
+```
+
+### Circuit Analysis and Visualization
+```
+"Show me the ASCII diagram for a Bell state circuit"
+"Analyze the complexity of my quantum circuit"
+"What gates are needed for quantum teleportation?"
+```
+
+### Educational Exploration
+```
+"How do CNOT gates create entanglement?"
+"What's the difference between X, Y, and Z gates?"
+"Explain quantum interference in simple terms"
+```
+
 ## Next Steps
 Once Braket integration is working:
-1. Try generating Bell pair circuits
-2. Experiment with VQE for molecular systems
-3. Compare Qiskit vs Braket implementations
-4. Explore real quantum hardware when ready
-5. Monitor costs and optimize usage patterns
+1. Try the sample queries above to explore different quantum concepts
+2. Experiment with VQE circuits for various materials
+3. Learn quantum gate operations through interactive examples
+4. Explore circuit complexity analysis and optimization
+5. Compare different ansatz types for materials science applications
