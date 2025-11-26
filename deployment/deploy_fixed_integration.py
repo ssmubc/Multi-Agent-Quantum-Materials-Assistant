@@ -171,9 +171,28 @@ def deploy_to_eb():
         
         print(f"✅ EB CLI version: {result.stdout.strip()}")
         
+        # Get available environments
+        print("\n📋 Getting available environments...")
+        result = subprocess.run(['eb', 'list'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("Available environments:")
+            print(result.stdout)
+            
+            # Ask user to select environment
+            env_name = input("\n🎯 Enter environment name to deploy to (or press Enter for default): ").strip()
+            
+            if env_name:
+                deploy_cmd = ['eb', 'deploy', env_name]
+                print(f"🚀 Running eb deploy {env_name}...")
+            else:
+                deploy_cmd = ['eb', 'deploy']
+                print("🚀 Running eb deploy...")
+        else:
+            deploy_cmd = ['eb', 'deploy']
+            print("🚀 Running eb deploy...")
+        
         # Deploy
-        print("🚀 Running eb deploy...")
-        result = subprocess.run(['eb', 'deploy'], capture_output=True, text=True)
+        result = subprocess.run(deploy_cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
             print("✅ Deployment successful!")
@@ -228,7 +247,8 @@ def main():
             sys.exit(1)
     else:
         print("📦 Deployment package ready. Deploy manually with:")
-        print("  eb deploy")
+        print("  eb deploy [environment-name]")
+        print("  Example: eb deploy quantum-matter-mcp-cloudfront")
 
 if __name__ == "__main__":
     main()
