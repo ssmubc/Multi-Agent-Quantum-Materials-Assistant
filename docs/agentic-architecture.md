@@ -78,64 +78,65 @@ The platform uses 5 specialized AWS Strands agents for different workflows:
 
 The platform integrates two main MCP servers for external data access:
 
-#### Materials Project MCP Server (`enhanced_mcp_materials/`)
-- **Purpose**: Access to Materials Project database
+#### Enhanced Materials Project MCP Server (`enhanced_mcp_materials/`)
+- **Purpose**: Robust access to Materials Project database with 8 specialized tools
 - **Functionality**:
-  - Crystal structure retrieval
-  - Electronic properties lookup
-  - Band structure and DOS data
-  - Formation energy and stability analysis
-- **Components**:
-  - `server.py` - Environment dispatcher
-  - `local_server.py` - Local development server
-  - `aws_server.py` - AWS deployment server
-  - `structure_helper.py` - Crystal structure utilities
+  - Material search by chemical formula
+  - Crystal structure retrieval and visualization
+  - 3D structure plotting with unit cell wireframes
+  - Supercell generation with customizable scaling
+  - Moiré bilayer creation for 2D materials
+  - POSCAR/CIF structure creation and analysis
+  - Electronic properties lookup (band gaps, formation energies)
+  - Auto-recovery and fallback mechanisms
+- **8 MCP Tools**: See [Materials Project MCP Integration Guide](materials-project-mcp-integration.md) for complete tool documentation
 
 #### Amazon Braket MCP Server (`BraketMCP/`)
-- **Purpose**: Quantum circuit generation and execution
+- **Purpose**: Educational quantum circuit analysis and visualization
 - **Functionality**:
-  - Quantum circuit creation (Bell, GHZ, QFT)
-  - Local simulator execution
-  - AWS quantum device access
-  - Circuit visualization and analysis
-- **Integration**:
-  - Amazon Braket SDK
-  - Local quantum simulators
-  - Real quantum hardware access
+  - Quantum circuit creation (Bell, GHZ, VQE demonstrations)
+  - Circuit analysis and ASCII visualization
+  - Educational quantum algorithm examples
+  - Device information and capabilities
+- **Integration**: See [Braket Integration Guide](braket-integration.md) for complete setup and usage documentation
 
 ## Agent Workflow Patterns
 
 ### 1. Simple Query Workflow
 ```
-User Query → Supervisor Agent → MCP Server → Direct Response
+User Query → Supervisor Agent → Enhanced MCP Tools → Direct Response with Visualization
 ```
-- Used for straightforward questions
-- Direct MCP interaction without specialized agents
-- Fast response time
+- Used for straightforward material lookups
+- Direct MCP interaction with 8 specialized tools
+- Automatic 3D visualization when requested
+- Fast response time with rich material data
 
 ### 2. POSCAR Analysis Workflow
 ```
-User Query → Supervisor Agent → Structure Agent → Materials Project MCP → Response
+User Query + POSCAR → Supervisor Agent → Coordinator Agent → Structure Matching → DFT Analysis → Response
 ```
 - Triggered by POSCAR file uploads or structure queries
-- Uses specialized structure matching capabilities
-- Integrates crystallographic analysis
+- Complete workflow coordination through Coordinator Agent
+- Materials Project structure matching
+- DFT parameter extraction and analysis
 
-### 3. Complex Query Workflow
+### 3. Complex Multi-Material Workflow
 ```
-User Query → Supervisor Agent → Coordinator Agent → Multiple Specialized Agents → Aggregated Response
+User Query → Supervisor Agent → Agentic Loop Agent → Iterative Material Analysis → Aggregated Response
 ```
-- Used for multi-step problems
-- Coordinates multiple agents (DFT + Structure + Agentic Loop)
-- Provides comprehensive analysis
+- Used for multi-material comparisons
+- Iterative processing of multiple materials
+- Comprehensive comparative analysis
+- Batch processing capabilities
 
-### 4. Iterative Problem Solving
+### 4. Specialized MCP Tool Workflows
 ```
-User Query → Supervisor Agent → Agentic Loop Agent → Iterative Refinement → Final Solution
+User Query → Supervisor Agent → Direct MCP Tool Execution → Enhanced Response
 ```
-- For complex research problems
-- Multiple iteration cycles
-- Continuous improvement of solutions
+- **Moiré Bilayer**: Automatic 2D material detection and twist angle extraction
+- **Supercell Generation**: Intelligent scaling matrix application
+- **3D Visualization**: Real-time crystal structure plotting
+- **DFT Parameter Extraction**: Literature-based parameter lookup
 
 ## Framework Integration
 
@@ -163,31 +164,117 @@ User Query → Braket MCP → Amazon Braket Code Generation
 - **Result Aggregation**: Multiple agent outputs combined intelligently
 - **Error Handling**: Graceful fallback when agents fail
 
-### MCP Integration
-- **Unified Interface**: All agents use consistent MCP client interface
-- **Environment Detection**: Automatic local vs AWS server selection
-- **Caching**: MCP responses cached to improve performance
-- **Fallback**: Graceful degradation when MCP servers unavailable
+### Enhanced MCP Integration
+- **8 Specialized Tools**: Direct access to Materials Project MCP tools (see [Materials Project MCP Integration](materials-project-mcp-integration.md))
+- **Auto-Recovery**: MCP server automatically restarts on failures
+- **Smart Caching**: In-memory structure storage for session persistence
+- **Fallback Mechanisms**: Multiple API endpoints and dummy data modes
+- **Real-time Health Monitoring**: MCP server status indicators in UI
 
 ## Specialized Agent Capabilities
 
 ### DFT Agent Features
-- **Parameter Database**: Curated DFT parameters from literature
-- **Validation Rules**: Checks for reasonable computational parameters
-- **Functional Selection**: Recommends appropriate XC functionals
-- **Input Generation**: Creates VASP/QE input files
+**Purpose**: Extract and validate DFT parameters for quantum Hamiltonian construction
 
-### Structure Agent Features
-- **POSCAR Parsing**: Reads and analyzes crystal structure files
-- **Symmetry Analysis**: Identifies space groups and point groups
-- **Materials Matching**: Finds similar structures in databases
-- **Visualization**: Generates 3D structure representations
+**Technical Process**:
+1. **Literature Parameter Lookup**: Searches curated database of published DFT parameters
+2. **Materials Project Integration**: Extracts band gaps and formation energies from MP data
+3. **Parameter Validation**: Applies physics-based rules to ensure reasonable values
+4. **Tight-Binding Generation**: Converts DFT data to Hubbard model parameters
+5. **Code Generation**: Creates executable Qiskit VQE circuits with real parameters
+
+**Example Query**: `"Generate tight-binding Hamiltonian for silicon mp-149 with DFT parameters"`
+**Workflow**: Supervisor → DFT Agent → MP lookup (mp-149) → Parameter extraction → Hamiltonian code
+
+### Structure Agent Features  
+**Purpose**: Analyze crystal structures and match to Materials Project database
+
+**Technical Process**:
+1. **POSCAR Parsing**: Extracts lattice vectors, atomic positions, and composition
+2. **Symmetry Analysis**: Identifies space groups using pymatgen SpacegroupAnalyzer
+3. **Structure Matching**: Compares against 150,000+ MP structures using similarity metrics
+4. **Crystallographic Validation**: Verifies structure consistency and physical validity
+5. **3D Visualization**: Generates interactive structure plots with unit cells
+
+**Example Query**: `"Analyze this POSCAR structure and match to Materials Project"`
+**Workflow**: Supervisor → Structure Agent → POSCAR analysis → MP matching → Symmetry report
 
 ### Agentic Loop Features
-- **Problem Decomposition**: Breaks complex queries into subtasks
-- **Iterative Refinement**: Improves solutions through multiple cycles
-- **Batch Processing**: Handles multiple materials simultaneously
-- **Progress Tracking**: Monitors workflow completion status
+**Purpose**: Handle complex multi-material queries through iterative problem solving
+
+**Technical Process**:
+1. **Query Decomposition**: Breaks complex requests into individual material lookups
+2. **Batch Processing**: Uses Strands `batch` tool for parallel material searches
+3. **Iterative Refinement**: Improves results through multiple analysis cycles with `retrieve` tool
+4. **AWS Integration**: Leverages `use_aws` tool for MCP server coordination
+5. **Progress Monitoring**: Tracks completion status and handles failures gracefully
+
+**Strands Tools Used**:
+- `batch` - Processes multiple materials simultaneously (e.g., [Si, Ge, C] in parallel)
+- `retrieve` - Augments analysis with additional knowledge retrieval
+- `use_aws` - Coordinates with Materials Project MCP server
+
+**Example Query**: `"Compare DFT parameters between silicon, germanium, and carbon"`
+**Workflow**: Supervisor → Agentic Loop → `batch([Si, Ge, C])` → Parameter comparison → Comparative analysis
+
+### Multi-Agent Coordination Examples
+
+**Complex Query Processing**:
+```
+Query: "Generate tight-binding Hamiltonian for silicon mp-149 with DFT parameters"
+
+Workflow:
+1. Supervisor Agent: Detects DFT parameter extraction need
+2. DFT Agent: 
+   - Calls select_material_by_id("mp-149")
+   - Extracts band gap (1.17 eV) and formation energy (-5.425 eV/atom)
+   - Applies literature correlations: U = 2 * |formation_energy|, t = band_gap/4
+   - Generates Hubbard model: U = 10.85 eV, t = 0.29 eV
+3. Code Generation: Creates Qiskit VQE ansatz with extracted parameters
+4. Response: Complete Hamiltonian code with real DFT values
+```
+
+**POSCAR Analysis Workflow**:
+```
+Query: "Analyze this POSCAR structure and match to Materials Project"
+
+Workflow:
+1. Supervisor Agent: Detects POSCAR analysis need
+2. Coordinator Agent: Orchestrates complete workflow
+3. Structure Agent:
+   - Parses POSCAR: extracts Si2 with diamond structure
+   - Calculates lattice parameters: a=5.43 Å
+   - Identifies space group: Fd-3m (#227)
+4. Materials Project Matching:
+   - Searches MP database for similar Si structures
+   - Finds match: mp-149 (silicon, diamond structure)
+   - Validates structural similarity
+5. DFT Agent: Extracts electronic properties for matched material
+6. Response: Complete structure analysis with MP match and properties
+```
+
+**Multi-Material Comparison**:
+```
+Query: "Compare DFT parameters between silicon, germanium, and carbon"
+
+Workflow:
+1. Supervisor Agent: Detects multi-material comparison
+2. Agentic Loop Agent: Manages iterative processing
+3. Iteration 1: Process Silicon
+   - search_materials_by_formula("Si") → mp-149
+   - Extract: Band gap 1.17 eV, Formation energy -5.425 eV/atom
+4. Iteration 2: Process Germanium  
+   - search_materials_by_formula("Ge") → mp-32
+   - Extract: Band gap 0.744 eV, Formation energy -3.85 eV/atom
+5. Iteration 3: Process Carbon
+   - search_materials_by_formula("C") → mp-66 (diamond)
+   - Extract: Band gap 5.48 eV, Formation energy 0.0 eV/atom
+6. Comparative Analysis:
+   - Band gap trend: C > Si > Ge (expected for group IV)
+   - Stability: Si most stable, C least stable in diamond form
+   - Tight-binding parameters calculated for each
+7. Response: Comprehensive comparison table with DFT parameters
+```
 
 ## Performance Optimization
 
@@ -219,11 +306,16 @@ User Query → Braket MCP → Amazon Braket Code Generation
 
 ## Development and Testing
 
-### Agent Development
-- **Mock Agents**: Local development uses mock Strands agents
+### AWS Strands Integration
+- **Production Agents**: Real AWS Strands agents using Claude Sonnet 4.5 for intelligent reasoning
+- **Strands Tools Integration**: Multiple tools from `strands-agents-tools`:
+  - `use_aws` - AWS service integration for MCP calls and resource access
+  - `retrieve` - Information retrieval for knowledge augmentation
+  - `batch` - Batch processing for multi-material analysis (used by Agentic Loop)
+- **Automatic Fallback**: Mock agents used locally when Strands packages unavailable
+- **Agent Framework**: Built on `strands-agents` SDK with `strands-agents-tools` for AWS integration
 - **Testing Framework**: Comprehensive agent testing capabilities
-- **Debug Logging**: Detailed logging for agent interactions
-- **Performance Monitoring**: Agent response time tracking
+- **Debug Logging**: Detailed logging for agent interactions and Claude responses
 
 ### MCP Server Testing
 - **Local Testing**: Full MCP server testing in local environment
