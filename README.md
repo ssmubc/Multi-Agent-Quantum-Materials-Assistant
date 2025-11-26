@@ -1,14 +1,16 @@
-# Quantum Matter LLM Testing Platform
+# Quantum Materials Code Generation and Simulation
+### AWS Bedrock, Amazon Braket, AWS Strands Agents & Model Context Protocol
 
 This project harnesses generative AI on AWS Cloud Infrastructure to enable quantum computing and materials science research through intelligent Large Language Model interactions. The platform integrates Materials Project data, Strands agentic workflows, and Amazon Braket quantum computing services to create comprehensive quantum simulations, generate VQE circuits, and analyze material properties with real-time MCP (Model Context Protocol) integration for enhanced accuracy and reliability.
 
 | Index | Description |
 |-------|-------------|
 | [High Level Architecture](docs/architecture.md) | High level overview illustrating component interactions |
-| [Deployment Guide](docs/deployment-guide.md) | How to deploy the project to AWS Elastic Beanstalk |
+| [Deployment](#aws-deployment) | Complete deployment guide for local development and AWS production |
 | [User Guide](docs/user-guide.md) | The working solution and interface guide |
 | [Agentic Architecture](docs/agentic-architecture.md) | Detailed documentation on Strands agentic workflows |
 | [Braket Integration](docs/braket-integration.md) | Amazon Braket quantum computing integration |
+| [Materials Project MCP Integration](docs/materials-project-mcp-integration.md) | Complete MCP server documentation with tools and examples |
 | [Troubleshooting Guide](#troubleshooting) | Documentation on how to troubleshoot common issues |
 | [Credits](#credits) | Meet the team behind the solution |
 | [License](#license) | License details |
@@ -293,57 +295,148 @@ pip install -r requirements.txt
 4. Add tests if applicable
 5. Submit a pull request
 
-## AWS Elastic Beanstalk Deployment
+## AWS Deployment
 
-For web deployment without requiring users to clone the repository:
+For production deployment with SSL and global CDN:
 
-1. **See docs/deployment-guide.md** for complete deployment guide
-2. **Deploy to AWS Elastic Beanstalk** for shared web access
-3. **Users access via URL** - no setup required
-4. **Auto-scaling** and load balancing included
+**[Complete Deployment Guide](docs/deployment-guide.md)**
 
-### Quick Deploy
-```bash
-# 1. Configure Materials Project API key (REQUIRED)
-python setup/setup_secrets.py
+- **Local Development**: 5-minute setup guide
+- **AWS Production**: Step-by-step Elastic Beanstalk deployment
+- **CloudFront SSL**: Enterprise-grade HTTPS and global CDN
+- **Cost Analysis**: Detailed pricing breakdown
+- **Troubleshooting**: Common issues and solutions
 
-# 2. Install EB CLI
-pip install awsebcli
+### CloudFront Distribution
 
-# 3. Initialize and deploy
-eb init quantum-matter-app --platform docker --region us-east-1
-eb create quantum-matter-env --instance-types t3.medium
-eb deploy
+For production deployments, CloudFront provides enterprise-grade infrastructure with zero additional cost:
 
-# 4. Configure SSL Certificate (Optional)
-eb setenv SSL_CERT_ARN=your_certificate_arn_here
+#### Technical Architecture
+- **Global Edge Network**: 400+ locations across 90+ cities
+- **SSL/TLS Encryption**: Automatic TLS 1.2/1.3 with free certificates
+- **Origin Shield**: Additional caching layer for improved performance
+- **Security Integration**: AWS WAF, Shield Standard (DDoS protection)
+- **HTTP/2 Support**: Faster multiplexed connections
+- **Compression**: Automatic gzip/brotli compression
 
-# 5. Get URL
-eb status
-```
+#### Setup Process
 
-### SSL/HTTPS Configuration
-
-To enable HTTPS for your deployment:
-
-1. **Create SSL Certificate in AWS Certificate Manager:**
-   - Go to AWS Console → Certificate Manager
-   - Request a public certificate for your domain
-   - Complete domain validation
-
-2. **Configure SSL in Elastic Beanstalk:**
+1. **Deploy to Elastic Beanstalk first:**
    ```bash
-   # Set the certificate ARN as environment variable
-   eb setenv SSL_CERT_ARN=arn:aws:acm:region:account:certificate/cert-id
-   
-   # Deploy the configuration
    eb deploy
    ```
 
-3. **Verify HTTPS Access:**
-   - Your app will be available at both HTTP and HTTPS URLs
-   - HTTPS: `https://your-app-name.elasticbeanstalk.com`
-   - HTTP: `http://your-app-name.elasticbeanstalk.com`
+2. **Automated CloudFront setup:**
+   ```bash
+   python deployment/setup_cloudfront.py
+   ```
+   
+   **Script Features:**
+   - Auto-detects AWS profiles and EB environments
+   - Creates optimized distribution configuration
+   - Configures SSL certificate automatically
+   - Sets up security headers and caching policies
+   - Provides immediate HTTPS URL
+
+3. **Configure authentication strategy:**
+   ```bash
+   # Option 1: Internal use with authentication
+   eb setenv DEMO_USERNAME=your-username DEMO_PASSWORD=your-password -e your-environment-name
+   
+   # Option 2: Public demo access
+   eb setenv PUBLIC_ACCESS=true CLOUDFRONT_ENABLED=true -e your-environment-name
+   ```
+
+4. **Verify deployment (15-20 minutes):**
+   ```bash
+   # Method 1: AWS CLI status check
+   aws cloudfront get-distribution --id your-distribution-id
+   
+   # Method 2: Direct HTTPS access test
+   curl -I https://your-distribution-domain.cloudfront.net
+   
+   # Method 3: Browser test
+   # Navigate to: https://your-distribution-domain.cloudfront.net
+   ```
+   
+   **Deployment Status:**
+   - ✅ **Deployed**: HTTP 200 response, application loads
+   - ⏳ **In Progress**: HTTP 503/504 errors (normal during deployment)
+   - 🔍 **Console Check**: CloudFront → Distributions → Status = "Deployed"
+
+#### Advanced Configuration
+
+**Custom Domain Setup:**
+```bash
+# 1. Request SSL certificate
+aws acm request-certificate \
+  --domain-name your-domain.com \
+  --validation-method DNS \
+  --region us-east-1
+
+# 2. Update CloudFront with custom domain
+# (Manual step in AWS Console)
+
+# 3. Update DNS records
+# CNAME: your-domain.com → your-distribution-domain.cloudfront.net
+```
+
+**Security Headers (Automatic):**
+- `Strict-Transport-Security`: Enforces HTTPS
+- `X-Content-Type-Options`: Prevents MIME sniffing
+- `X-Frame-Options`: Clickjacking protection
+- `X-XSS-Protection`: Cross-site scripting filtering
+- `Content-Security-Policy`: Resource loading restrictions
+
+**Performance Optimization:**
+- **Cache Policies**: Optimized for Streamlit applications
+- **Origin Request Policies**: Forwards necessary headers
+- **Compression**: Automatic for text-based content
+- **HTTP/2**: Enabled by default for faster loading
+
+#### Enterprise Benefits
+
+| Feature | Technical Specification | Business Value |
+|---------|------------------------|----------------|
+| **SSL/TLS** | TLS 1.2/1.3, 256-bit encryption | Enterprise security compliance |
+| **Global CDN** | 400+ edge locations, <50ms latency | Worldwide accessibility |
+| **DDoS Protection** | AWS Shield Standard included | 99.99% uptime protection |
+| **Bandwidth** | 1TB/month free tier | Cost-effective scaling |
+| **Certificate Management** | Automatic renewal | Zero maintenance overhead |
+| **Security Headers** | OWASP recommended headers | Enhanced security posture |
+| **Monitoring** | CloudWatch integration | Real-time performance metrics |
+
+#### Cost Analysis (AWS Free Tier)
+
+```
+CloudFront Free Tier (12 months):
+├── Data Transfer Out: 1TB/month
+├── HTTP/HTTPS Requests: 10M/month  
+├── SSL Certificates: Unlimited (always free)
+└── Typical Academic Usage: $0/month
+
+Beyond Free Tier:
+├── Data Transfer: $0.085/GB (US/Europe)
+├── HTTP Requests: $0.0075/10K requests
+├── HTTPS Requests: $0.0100/10K requests
+└── Estimated Cost: <$5/month for most use cases
+```
+
+#### Monitoring and Analytics
+
+**CloudWatch Metrics:**
+- Request count and error rates
+- Cache hit ratio and performance
+- Origin latency and availability
+- Data transfer and bandwidth usage
+
+**Real-time Logs (Optional):**
+```bash
+# Enable real-time logs for detailed analysis
+aws cloudfront create-realtime-log-config \
+  --name quantum-matter-logs \
+  --end-points Type=Kinesis,StreamArn=your-kinesis-stream
+```
 
 ## Strands Agentic Workflows
 
@@ -377,6 +470,8 @@ Robust Materials Project integration with enhanced reliability:
 - **Consistent Structure IDs**: Standardized mp-123 format
 - **Enhanced Error Handling**: Graceful degradation and retry logic
 - **Real-time Monitoring**: Health checks and performance metrics
+
+For complete MCP tools documentation, see [Materials Project MCP Integration Guide](docs/materials-project-mcp-integration.md)
 
 ## Troubleshooting
 
@@ -430,3 +525,6 @@ Licenses of libraries and tools used by the system are listed below:
 
 **Materials Project API**
 - For Materials Project data access - "Materials Project API is freely available for academic and non-commercial use"
+
+**MCP.Science Framework**
+- For Materials Project MCP server implementation - Path Integral Institute [MCP.Science](https://github.com/pathintegral-institute/mcp.science)
