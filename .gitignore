@@ -72,6 +72,9 @@ vs_buildtools.exe
 test_*.py
 verify_*.py
 
+# Cognito fix script with hardcoded resource IDs (security risk)
+setup/fix_cognito_email.py
+
 # SSL setup scripts
 create_cert*.py
 setup_ssl.py
