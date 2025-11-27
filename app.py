@@ -11,7 +11,7 @@ import base64
 from io import BytesIO
 
 # Import authentication
-from config.auth_module import require_auth
+from config.cognito_auth import get_auth_handler
 
 # Import our model classes
 from models.nova_pro_model import NovaProModel
@@ -364,7 +364,8 @@ def display_model_status():
 def main():
     """Main application"""
     # Check authentication first
-    if not require_auth():
+    auth_handler = get_auth_handler()
+    if not auth_handler.render_auth_ui():
         return
     
     # Setup logging display
