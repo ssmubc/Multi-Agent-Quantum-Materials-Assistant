@@ -17,12 +17,9 @@ This project harnesses generative AI on AWS Cloud Infrastructure to enable quant
 
 ## High-Level Architecture
 
-The platform utilizes a sophisticated multi-agent architecture combining AWS Bedrock LLMs, Materials Project MCP servers, and Strands agentic workflows for intelligent quantum materials analysis.
+The following architecture diagram illustrates the various AWS components utilized to deliver the solution. For an in-depth explanation of the application architecture and data flow, please look at the [Architecture Guide](docs/architecture.md).
 
-<!-- Architecture diagram will be added here -->
-
-For detailed architecture documentation, see [Architecture Guide](docs/architecture.md).
-
+![Alt text](docs/images/ArchitectureDiagramQuantumStreamlitApp.png)
 
 ## Features
 
