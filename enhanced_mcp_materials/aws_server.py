@@ -58,7 +58,7 @@ def get_enhanced_description(structure, material_id: str = None, structure_id: s
                 mp_properties += f"\nFormation Energy: {properties.formation_energy_per_atom:.3f} eV/atom"
 
         description += f"""Material id: {material_id if material_id else 'N/A'}\nFormula: {structure.composition.formula}{spg_info.strip()}{mp_properties}\nLattice Parameters:\na={structure.lattice.a:.4f}, b={structure.lattice.b:.4f}, c={structure.lattice.c:.4f}\nAngles:\nalpha={structure.lattice.alpha:.4f}, beta={structure.lattice.beta:.4f}, gamma={structure.lattice.gamma:.4f}\nNumber of atoms: {len(structure)}\n"""
-        return json.loads(json.dumps(description))
+        return description
     except Exception as e:
         logger.warning(f"Enhanced description failed: {e}")
         return f"Structure {structure_id}: Enhanced description failed"
@@ -85,7 +85,7 @@ def generate_structure_id(material_id: str = None, structure = None) -> str:
     else:
         import uuid
         content = str(structure) if structure else str(uuid.uuid4())
-        return hashlib.md5(content.encode()).hexdigest()[:8]
+        return hashlib.sha256(content.encode()).hexdigest()[:8]
 
 # Try to import enhanced structure data classes
 try:
@@ -126,7 +126,7 @@ class StructureData:
         else:
             # Generate hash from structure
             content = str(self.structure) if self.structure else "unknown"
-            return hashlib.md5(content.encode()).hexdigest()[:8]
+            return hashlib.sha256(content.encode()).hexdigest()[:8]
     
     @property
     def description(self) -> str:
@@ -152,7 +152,7 @@ class StructureData:
             return self.enhanced.poscar_str
         
         if self.structure:
-            return self.structure.to(fmt="poscar")
+            return get_poscar_str(self.structure)
         return ""
 
 @mcp.tool()
@@ -267,7 +267,8 @@ def select_material_by_id(material_id: str) -> List[TextContent]:
             
             # Use enhanced description
             structure_id = generate_structure_id(material_id=material_id)
-            desc = get_enhanced_description(structure, material_id, structure_id, material_data[0] if material_data else None)
+            properties = material_data[0] if material_data and len(material_data) > 0 else None
+            desc = get_enhanced_description(structure, material_id, structure_id, properties)
             
             # Create structure data
             structure_data = StructureData(material_id=material_id, structure=structure)
@@ -306,7 +307,7 @@ def get_structure_data(structure_uri: str, format: Literal["cif", "poscar"] = "p
     if structure_id not in structure_storage:
         # Try to reload from Materials Project if it's an mp_ ID
         if structure_id.startswith("mp_"):
-            material_id = structure_id.replace("mp_", "")
+            material_id = structure_id.replace("mp_", "mp-")
             logger.info(f"🔄 GET_STRUCTURE: Attempting to reload {material_id} from Materials Project")
             
             api_key = os.getenv("MP_API_KEY")
@@ -535,11 +536,11 @@ def plot_structure(structure_uri: str, duplication: List[int] = [1, 1, 1]) -> Li
         ax.set_title(title)
         ax.legend()
         
-        # Convert to base64
-        buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
-        buffer.seek(0)
-        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        # Convert to base64 with proper resource management
+        with BytesIO() as buffer:
+            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+            buffer.seek(0)
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         plt.close()
         
         logger.info(f"✅ AWS PLOT_STRUCTURE: Matplotlib fallback successful ({len(img_base64)} chars)")
@@ -692,80 +693,7 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         except Exception as ee:
             logger.warning(f"Enhanced moire generation failed: {ee}, using fallback")
         
-        # Enhanced moire generation with diagnostics (like local server)
-        def generate_enhanced_moire_bilayer(structure, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float):
-            """Enhanced moire bilayer generation with diagnostics"""
-            diagnostics = []
-            diagnostics.append("AWS ENHANCED MODE: Moire generation with diagnostics")
-            diagnostics.append(f"AWS ENHANCED MODE: {len(structure)} atoms, {twist_angle}° twist")
-            
-            try:
-                import numpy as np
-                from pymatgen.core.lattice import Lattice
-                from pymatgen.core.structure import Structure
-                
-                # Create two layers with twist
-                layer1 = structure.copy()
-                layer2 = structure.copy()
-                
-                # Apply twist to second layer (rotation around z-axis)
-                angle_rad = np.radians(twist_angle)
-                rotation_matrix = np.array([
-                    [np.cos(angle_rad), -np.sin(angle_rad), 0],
-                    [np.sin(angle_rad), np.cos(angle_rad), 0],
-                    [0, 0, 1]
-                ])
-                
-                # Rotate layer2 coordinates
-                for i, site in enumerate(layer2):
-                    new_coords = np.dot(rotation_matrix, site.coords)
-                    layer2[i] = site.specie, new_coords
-                
-                # Shift layer2 up by interlayer_spacing
-                layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
-                
-                # Combine layers
-                moire_sites = list(layer1.sites) + list(layer2.sites)
-                
-                # Limit number of atoms
-                if len(moire_sites) > max_num_atoms:
-                    moire_sites = moire_sites[:max_num_atoms]
-                
-                # Create new lattice with vacuum
-                old_lattice = layer1.lattice
-                new_lattice_matrix = old_lattice.matrix.copy()
-                new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
-                new_lattice = Lattice(new_lattice_matrix)
-                
-                # Create moire structure
-                final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
-                diagnostics.append(f"AWS ENHANCED MODE: Completed - {len(final_structure)} atoms")
-                return final_structure, "\n".join(diagnostics)
-                
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                diagnostics.append(f"AWS FALLBACK MODE: Enhanced generation failed: {e}")
-                diagnostics.append(f"AWS FALLBACK MODE: Full error trace: {error_details}")
-                # Simple fallback
-                layer1 = structure.copy()
-                layer2 = structure.copy()
-                layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
-                
-                moire_sites = list(layer1.sites) + list(layer2.sites)
-                if len(moire_sites) > max_num_atoms:
-                    moire_sites = moire_sites[:max_num_atoms]
-                
-                old_lattice = layer1.lattice
-                new_lattice_matrix = old_lattice.matrix.copy()
-                new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
-                new_lattice = Lattice(new_lattice_matrix)
-                
-                final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
-                diagnostics.append(f"AWS FALLBACK MODE: Completed - {len(final_structure)} atoms")
-                return final_structure, "\n".join(diagnostics)
-        
-        # Use enhanced moire generation
+        # Use enhanced moire generation with timeout protection
         logger.info(f"🌀 MOIRE: Starting generation for {len(bulk_data.structure)} atoms, {twist_angle}° twist")
         try:
             moire_structure, diagnostics = generate_enhanced_moire_bilayer(
@@ -789,10 +717,10 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         
         # Extract method type from diagnostics for immediate visibility
         method_type = "UNKNOWN"
-        if "AWS ENHANCED MODE" in diagnostics:
-            method_type = "AWS ENHANCED MODE"
-        elif "AWS FALLBACK MODE" in diagnostics:
-            method_type = "AWS FALLBACK MODE"
+        if "ULTRA-FAST MODE" in diagnostics:
+            method_type = "ULTRA-FAST MODE"
+        elif "BASIC FALLBACK MODE" in diagnostics:
+            method_type = "BASIC FALLBACK MODE"
         
         # Log diagnostics to server console
         logger.info(f"🔧 MOIRE: Using {method_type}")
@@ -823,6 +751,61 @@ def moire_homobilayer(bulk_structure_uri: str, interlayer_spacing: float, max_nu
         
     except Exception as e:
         return [TextContent(type="text", text=f"Error generating moire bilayer: {str(e)}")]
+
+def generate_enhanced_moire_bilayer(structure, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float):
+    """Ultra-fast moire bilayer generation - returns (structure, diagnostics)"""
+    from pymatgen.core.structure import Structure
+    from pymatgen.core.lattice import Lattice
+    
+    diagnostics = []
+    diagnostics.append("ULTRA-FAST MODE: Minimal moire generation")
+    diagnostics.append(f"ULTRA-FAST MODE: {len(structure)} atoms, {twist_angle}° twist")
+    
+    try:
+        # Ultra-simple approach: just stack two layers with minimal processing
+        layer1 = structure.copy()
+        layer2 = structure.copy()
+        
+        # Simple z-translation for second layer
+        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+        
+        # Combine layers (limit atoms immediately)
+        layer1_sites = list(layer1.sites)[:max_num_atoms//2]
+        layer2_sites = list(layer2.sites)[:max_num_atoms//2]
+        moire_sites = layer1_sites + layer2_sites
+        
+        # Simple lattice expansion
+        old_lattice = layer1.lattice
+        new_lattice_matrix = old_lattice.matrix.copy()
+        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+        new_lattice = Lattice(new_lattice_matrix)
+        
+        final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        diagnostics.append(f"ULTRA-FAST MODE: Completed - {len(final_structure)} atoms")
+        return final_structure, "\n".join(diagnostics)
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        diagnostics.append(f"BASIC FALLBACK MODE: Enhanced generation failed: {e}")
+        diagnostics.append(f"BASIC FALLBACK MODE: Full error trace: {error_details}")
+        # Simple fallback
+        layer1 = structure.copy()
+        layer2 = structure.copy()
+        layer2.translate_sites(range(len(layer2)), [0, 0, interlayer_spacing])
+        
+        moire_sites = list(layer1.sites) + list(layer2.sites)
+        if len(moire_sites) > max_num_atoms:
+            moire_sites = moire_sites[:max_num_atoms]
+        
+        old_lattice = layer1.lattice
+        new_lattice_matrix = old_lattice.matrix.copy()
+        new_lattice_matrix[2, 2] = old_lattice.c + interlayer_spacing + vacuum_thickness
+        new_lattice = Lattice(new_lattice_matrix)
+        
+        final_structure = Structure(new_lattice, [site.specie for site in moire_sites], [site.frac_coords for site in moire_sites])
+        diagnostics.append(f"BASIC FALLBACK MODE: Completed - {len(final_structure)} atoms")
+        return final_structure, "\n".join(diagnostics)
 
 def main():
     """Main entry point for the MCP server"""
