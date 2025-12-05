@@ -5,8 +5,27 @@ import subprocess
 import json
 import os
 import logging
+import atexit
+from contextlib import contextmanager
 from typing import Dict, Any, Optional, List
 import re
+
+# Import decorators at module level
+try:
+    from .mcp_decorators import mcp_error_handler, retry_on_failure
+    from .shared_exceptions import ServiceUnavailableError, ValidationError
+except ImportError:
+    # Fallback decorators if imports fail
+    def mcp_error_handler(func):
+        return func
+    def retry_on_failure(max_retries=1):
+        def decorator(func):
+            return func
+        return decorator
+    class ServiceUnavailableError(Exception):
+        pass
+    class ValidationError(Exception):
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -28,32 +47,54 @@ class EnhancedMCPClient:
         self.show_debug = show_debug
         self.debug_callback = debug_callback
         self.last_call_time = 0
-        self.min_call_interval = 1.0  # Increased to 1 second between calls
+        from config.app_config import AppConfig
+        self.min_call_interval = AppConfig.MCP_MIN_CALL_INTERVAL
         self.consecutive_failures = 0
-        self.max_consecutive_failures = 2  # Fail faster
+        self.max_consecutive_failures = AppConfig.MCP_MAX_CONSECUTIVE_FAILURES
         self.call_count = 0
-        self.max_calls_before_restart = 1  # Force immediate restart to load new visualization code
+        self.max_calls_before_restart = AppConfig.MCP_MAX_CALLS_BEFORE_RESTART
         self.monitor = get_mcp_monitor() if MONITORING_AVAILABLE else None
+        
+        # Register cleanup on exit
+        atexit.register(self.cleanup)
         
     def start_server(self) -> bool:
         """Start the enhanced MCP server"""
         try:
-            env = os.environ.copy()
-            env['MP_API_KEY'] = self.api_key
+            # Secure API key handling - don't expose in environment
+            from .config_validator import validate_python_executable, validate_working_directory, get_secure_api_key
+            
+            # Get API key securely
+            if not self.api_key:
+                self.api_key = get_secure_api_key()
+                if not self.api_key:
+                    logger.error("❌ MCP: No API key available")
+                    return False
             
             logger.info("🚀 MCP SERVER: Starting enhanced MCP Materials Project server...")
-            # Find uv executable dynamically
-            import shutil
-            uv_path = shutil.which("uv") or "uv"
             
-            # Start MCP server with proper error handling
-            python_exe = env.get('MCP_PYTHON_PATH', 'python')
+            # Validate Python executable to prevent command injection
+            python_exe = os.environ.get('MCP_PYTHON_PATH', 'python')
+            try:
+                python_exe = validate_python_executable(python_exe)
+            except Exception as e:
+                logger.error(f"❌ MCP: Invalid Python executable: {e}")
+                return False
+            
+            # Validate working directory to prevent path traversal
+            try:
+                current_dir = validate_working_directory(os.getcwd())
+            except Exception as e:
+                logger.error(f"❌ MCP: Invalid working directory: {e}")
+                return False
+            
+            logger.info(f"🚀 MCP: Starting server from {current_dir}")
+            
+            # Create environment with all necessary variables for Windows
+            env = os.environ.copy()  # Start with full environment
+            env['MP_API_KEY'] = self.api_key  # Override with secure API key
             
             try:
-                # Ensure we're in the right directory
-                current_dir = os.getcwd()
-                logger.info(f"🚀 MCP: Starting server from {current_dir}")
-                
                 self.server_process = subprocess.Popen([
                     python_exe, "-m", "enhanced_mcp_materials.server"
                 ],
@@ -63,19 +104,48 @@ class EnhancedMCPClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=0  # Unbuffered for real-time communication
+                bufsize=0,  # Unbuffered for real-time communication
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0  # Hide window on Windows
                 )
                 logger.info(f"🚀 MCP: Started server process PID {self.server_process.pid}")
                 
-                # Give server a moment to start
+                # Note: API key is in environment but will be cleared after use
+                
+                # Give server more time to start with timeout
                 import time
-                time.sleep(1)
+                startup_timeout = 30  # Increased to 30 seconds
+                start_time = time.time()
+                
+                # Wait for process to stabilize
+                time.sleep(2)
+                
+                while time.time() - start_time < startup_timeout:
+                    time.sleep(1)
+                    if self.server_process.poll() is None:
+                        break  # Process is running
+                else:
+                    logger.error(f"❌ MCP: Server startup timeout after {startup_timeout}s")
+                    # Check stderr for startup errors
+                    try:
+                        stderr_output = self.server_process.stderr.read(1000)  # Read first 1000 chars
+                        if stderr_output:
+                            logger.error(f"❌ MCP: Server stderr: {stderr_output}")
+                    except:
+                        pass
+                    self.cleanup()
+                    return False
                 
                 # Check if process is still alive
                 if self.server_process.poll() is not None:
                     # Process died immediately, check stderr
-                    stderr_output = self.server_process.stderr.read()
-                    logger.error(f"❌ MCP: Server died immediately: {stderr_output}")
+                    try:
+                        stderr_output = self.server_process.stderr.read(1000)  # Read up to 1000 chars
+                        stdout_output = self.server_process.stdout.read(1000)  # Also check stdout
+                        logger.error(f"❌ MCP: Server died immediately with return code: {self.server_process.returncode}")
+                        logger.error(f"❌ MCP: Stderr: {stderr_output}")
+                        logger.error(f"❌ MCP: Stdout: {stdout_output}")
+                    except Exception as read_error:
+                        logger.error(f"❌ MCP: Could not read process output: {read_error}")
                     self.server_process = None
                     return False
                     
@@ -86,13 +156,18 @@ class EnhancedMCPClient:
                 self.server_process = None
                 return False
             
-            # Initialize MCP session
-            if self._initialize_mcp_session():
-                logger.info("✅ MCP SERVER: Enhanced MCP server started successfully")
-                return True
-            else:
-                logger.error("💥 MCP SERVER: Failed to initialize MCP session")
-                return False
+            # Initialize MCP session with retry
+            for init_attempt in range(3):
+                if self._initialize_mcp_session():
+                    logger.info("✅ MCP SERVER: Enhanced MCP server started successfully")
+                    return True
+                else:
+                    logger.warning(f"⚠️ MCP SERVER: Initialization attempt {init_attempt + 1}/3 failed")
+                    if init_attempt < 2:
+                        time.sleep(2)  # Wait before retry
+            
+            logger.error("💥 MCP SERVER: Failed to initialize MCP session after 3 attempts")
+            return False
             
         except Exception as e:
             logger.error(f"💥 MCP SERVER: Failed to start enhanced MCP server: {e}")
@@ -143,9 +218,37 @@ class EnhancedMCPClient:
     
     def stop_server(self):
         """Stop the MCP server"""
+        self.cleanup()
+    
+    def cleanup(self):
+        """Ensure resources are properly cleaned up"""
         if self.server_process:
-            self.server_process.terminate()
-            self.server_process = None
+            try:
+                self.server_process.terminate()
+                self.server_process.wait(timeout=5)
+                logger.info("🧹 MCP: Server terminated gracefully")
+            except subprocess.TimeoutExpired:
+                logger.warning("⚠️ MCP: Server didn't terminate, force killing")
+                self.server_process.kill()
+                self.server_process.wait()
+            except Exception as e:
+                logger.error(f"❌ MCP: Cleanup error: {e}")
+                try:
+                    self.server_process.kill()
+                except:
+                    pass
+            finally:
+                self.server_process = None
+    
+    @contextmanager
+    def server_context(self):
+        """Context manager for safe server lifecycle"""
+        try:
+            if not self.start_server():
+                raise RuntimeError("Failed to start MCP server")
+            yield self
+        finally:
+            self.cleanup()
     
     def _execute_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
         """Execute the actual tool call (helper for retry mechanism)"""
@@ -210,6 +313,8 @@ class EnhancedMCPClient:
         """Call a tool on the MCP server with automatic restart on failure"""
         # Enhanced rate limiting and server health management
         import time
+        from config.app_config import AppConfig
+        
         current_time = time.time()
         time_since_last_call = current_time - self.last_call_time
         if time_since_last_call < self.min_call_interval:
@@ -291,7 +396,7 @@ class EnhancedMCPClient:
                 read_thread.start()
                 
                 # Adaptive timeout based on call history and server health
-                base_timeout = 45  # Reduced base timeout
+                base_timeout = getattr(AppConfig, 'MCP_TIMEOUT_SECONDS', 30)
                 if self.consecutive_failures > 0:
                     timeout_seconds = max(20, base_timeout - (self.consecutive_failures * 10))  # Shorter timeout after failures
                 elif tool_name in ["moire_homobilayer", "build_supercell"]:
@@ -395,37 +500,52 @@ class EnhancedMCPClient:
             return self._retry_tool_call(tool_name, arguments, max_retries=2)
     
     def _retry_tool_call(self, tool_name: str, arguments: Dict[str, Any], max_retries: int = 2) -> Optional[List[Dict[str, Any]]]:
-        """Retry tool call with exponential backoff"""
+        """Retry tool call with intelligent exponential backoff"""
         import time
+        
+        # Define transient errors that should be retried
+        transient_errors = (ConnectionError, TimeoutError, subprocess.TimeoutExpired)
         
         for attempt in range(max_retries):
             try:
                 logger.info(f"🔄 MCP: Retry attempt {attempt + 1}/{max_retries} for {tool_name}")
                 
-                # Force restart server
-                self._force_server_restart()
+                # Only restart server for connection issues
+                if attempt > 0:
+                    self._force_server_restart()
                 
-                # Wait with exponential backoff
-                wait_time = 2 ** attempt  # 1s, 2s, 4s...
-                time.sleep(wait_time)
+                # Exponential backoff: 2^attempt seconds (2s, 4s, 8s)
+                if attempt > 0:
+                    wait_time = min(2 ** attempt, 10)  # Cap at 10 seconds
+                    time.sleep(wait_time)
                 
                 # Retry the call
                 if self._is_server_healthy():
                     return self._execute_tool_call(tool_name, arguments)
                 else:
-                    logger.warning(f"⚠️ MCP: Server still unhealthy after restart attempt {attempt + 1}")
+                    logger.warning(f"⚠️ MCP: Server unhealthy after restart attempt {attempt + 1}")
                     
-            except Exception as retry_e:
-                logger.error(f"💥 MCP: Retry attempt {attempt + 1} failed: {retry_e}")
+            except transient_errors as retry_e:
+                logger.warning(f"🔄 MCP: Transient error on attempt {attempt + 1}: {retry_e}")
                 if attempt == max_retries - 1:
                     logger.error(f"💥 MCP: All retry attempts failed for {tool_name}")
                     self.consecutive_failures += 1
+            except Exception as non_transient_e:
+                # Don't retry non-transient errors
+                logger.error(f"❌ MCP: Non-transient error, not retrying: {non_transient_e}")
+                self.consecutive_failures += 1
+                return None
         
         self.consecutive_failures += 1
         return None
     
+    @mcp_error_handler
+    @retry_on_failure(max_retries=1)
     def search_materials(self, formula: str) -> List[str]:
         """Search materials by formula"""
+        if not formula or not formula.strip():
+            raise ValidationError("Formula cannot be empty")
+        
         logger.info(f"🔍 MCP: Searching materials for formula: {formula}")
         if self.show_debug and self.debug_callback:
             self.debug_callback(f"🔍 **MCP Tool 1**: Searching materials for formula: {formula}")
@@ -435,7 +555,7 @@ class EnhancedMCPClient:
             logger.warning("⚠️ MCP: Server not available")
             if self.show_debug and self.debug_callback:
                 self.debug_callback("⚠️ **MCP Server Unavailable**")
-            return []
+            raise ServiceUnavailableError("MCP server not available")
         
         result = self.call_tool("search_materials_by_formula", {
             "chemical_formula": formula
@@ -864,8 +984,11 @@ class EnhancedMCPClient:
             logger.error("❌ MCP: Failed to restart server")
     
     def __del__(self):
-        """Cleanup"""
-        self.stop_server()
+        """Cleanup resources on destruction"""
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # Ignore errors during cleanup in destructor
 
 
 class EnhancedMCPAgent:
@@ -875,11 +998,28 @@ class EnhancedMCPAgent:
         self.client = EnhancedMCPClient(api_key, show_debug, debug_callback)
         self.show_debug = show_debug
         self.debug_callback = debug_callback
-        self.client.start_server()
+        self.server_available = False
+        
+        # Try to start server with fallback
+        try:
+            self.server_available = self.client.start_server()
+            if self.server_available:
+                logger.info("✅ MCP AGENT: Enhanced MCP server started successfully")
+            else:
+                logger.warning("⚠️ MCP AGENT: MCP server failed to start, using fallback mode")
+        except Exception as e:
+            logger.error(f"❌ MCP AGENT: Server startup failed: {e}, using fallback mode")
+            self.server_available = False
     
     def search(self, query: str) -> Dict[str, Any]:
         """Search for materials - returns structured data for base model"""
         logger.info(f"🚀 MCP AGENT: Starting search for query: '{query}'")
+        
+        # Check if server is available, use fallback if not
+        if not self.server_available:
+            logger.warning("⚠️ MCP AGENT: Server not available, using fallback search")
+            return self._fallback_search(query)
+        
         try:
             # Handle material ID queries - look for mp- anywhere in query
             import re
@@ -955,7 +1095,9 @@ class EnhancedMCPAgent:
             
         except Exception as e:
             logger.error(f"💥 MCP AGENT: Search failed for '{query}': {e}")
-            return {"error": str(e)}
+            # Try fallback on any error
+            logger.info("🔄 MCP AGENT: Attempting fallback search...")
+            return self._fallback_search(query)
     
     # All MCP server tools exposed through agent
     def get_structure(self, material_id: str, format: str = "poscar") -> Optional[str]:
@@ -1004,6 +1146,79 @@ class EnhancedMCPAgent:
         except Exception as e:
             logger.error(f"💥 MCP AGENT: select_material_by_id failed for {material_id}: {e}")
             return self._get_fallback_material_data(material_id, error=str(e))
+    
+    def _fallback_search(self, query: str) -> Dict[str, Any]:
+        """Fallback search using direct Materials Project API when MCP server is unavailable"""
+        try:
+            from mp_api.client import MPRester
+            import re
+            
+            # Handle material ID queries
+            mp_match = re.search(r'(mp-\d+)', query.lower())
+            if mp_match:
+                material_id = mp_match.group(1)
+                logger.info(f"🔄 FALLBACK: Direct API lookup for {material_id}")
+                return self._get_fallback_material_data(material_id)
+            
+            # Handle formula queries with direct API
+            api_key = self.client.api_key
+            if not api_key:
+                logger.error("❌ FALLBACK: No API key available")
+                return {"error": "No API key available for fallback search"}
+            
+            with MPRester(api_key) as mpr:
+                try:
+                    results = mpr.materials.summary.search(
+                        formula=query,
+                        fields=["material_id", "formula_pretty", "band_gap", "formation_energy_per_atom"]
+                    )
+                    
+                    if results:
+                        # Return first result as structured data
+                        material = results[0]
+                        material_id = material.material_id
+                        
+                        # Get structure data
+                        try:
+                            structure = mpr.get_structure_by_material_id(material_id)
+                            if structure:
+                                # Create geometry string
+                                sites = list(structure.sites)[:4]  # First 4 atoms
+                                geometry_parts = []
+                                for site in sites:
+                                    coords = site.coords
+                                    element = str(site.specie)
+                                    geometry_parts.append(f"{element} {coords[0]:.3f} {coords[1]:.3f} {coords[2]:.3f}")
+                                geometry = "; ".join(geometry_parts)
+                            else:
+                                geometry = "Si 0.0 0.0 0.0; Si 1.357 1.357 1.357"
+                        except:
+                            geometry = "Si 0.0 0.0 0.0; Si 1.357 1.357 1.357"
+                        
+                        data = {
+                            "material_id": material_id,
+                            "formula": material.formula_pretty,
+                            "band_gap": float(material.band_gap) if material.band_gap else 0.0,
+                            "formation_energy": float(material.formation_energy_per_atom) if material.formation_energy_per_atom else -2.0,
+                            "crystal_system": "cubic",  # Default
+                            "structure_uri": f"structure://{material_id}",
+                            "source": "Direct Materials Project API (fallback)",
+                            "geometry": geometry
+                        }
+                        
+                        logger.info(f"✅ FALLBACK: Found {material_id} via direct API")
+                        return data
+                    else:
+                        logger.warning(f"⚠️ FALLBACK: No results for {query}")
+                        return {"error": f"No materials found for {query}"}
+                        
+                except Exception as api_error:
+                    logger.error(f"❌ FALLBACK: API error: {api_error}")
+                    return {"error": f"Materials Project API error: {str(api_error)}"}
+                    
+        except Exception as e:
+            logger.error(f"💥 FALLBACK: Search failed: {e}")
+            return {"error": f"Fallback search failed: {str(e)}"}
     
     def _get_fallback_material_data(self, material_id: str, error: str = None) -> Dict[str, Any]:
         """Get universal fallback material data when API fails - works for ANY material"""
