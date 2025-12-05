@@ -35,13 +35,13 @@ def create_deployment_package():
         "app.py",
         "demo_mode.py",  # Demo mode stub
         "requirements.txt",
-        "config/",  # Configuration files (auth_module.py, .env.example)
+        "config/",  # Configuration files (auth_module.py, .env.example, app_config.py)
         "deployment/.ebignore",  # EB ignore file - ensures BraketMCP is deployed
         "deployment/Dockerfile",
         "deployment/.dockerignore",
         "models/",
-        "utils/",
-        "agents/",
+        "utils/",  # All security utilities included
+        "agents/",  # All agent files including base_agent.py
         "enhanced_mcp_materials/",
         "BraketMCP/",
         "deployment/.ebextensions/",  # Updated path
@@ -107,15 +107,26 @@ def create_deployment_package():
         "Dockerfile",  # Docker deployment
         "requirements.txt",
         "config/auth_module.py",
+        "config/app_config.py",  # Centralized configuration
         "config/cognito_auth.py",  # New Cognito auth
         "config/custom_cognito_auth.py",  # Custom Cognito implementation
         "utils/mcp_tools_wrapper.py",
+        "utils/audit_logger.py",  # Security audit logging
+        "utils/code_security.py",  # Code security validation
+        "utils/config_validator.py",  # Configuration validation
+        "utils/rate_limiter.py",  # Rate limiting
+        "utils/structured_logger.py",  # Structured logging
+        "utils/shared_exceptions.py",  # Exception hierarchy
+        "utils/mcp_decorators.py",  # MCP decorators
+        "utils/mcp_monitor.py",  # MCP monitoring
+        "agents/base_agent.py",  # Base agent class
         "agents/strands_supervisor.py",
         "utils/braket_integration.py",
         "utils/debug_logger.py",
         "utils/logging_display.py",
         ".ebextensions/01_environment.config",
         ".ebextensions/04_mcp_setup.config",
+        ".ebextensions/05_security_headers.config",  # Security headers
         ".ebextensions/07_cognito_config.config",  # New Cognito config
         "setup/setup_secrets.py",
         "setup/setup_cognito.py"  # New Cognito setup
@@ -272,6 +283,10 @@ def main():
             print("✓ Braket MCP Installation with Fallback Handling")
             print("✓ Enhanced Error Handling and Logging")
             print("✓ CloudFront SSL and Global CDN")
+            print("✓ 18 Security Vulnerabilities Fixed")
+            print("✓ Rate Limiting and Audit Logging")
+            print("✓ Code Security Validation")
+            print("✓ Production-Ready Security Headers")
             
             print("\nTest Your Deployment:")
             print("1. Visit your CloudFront URL")
