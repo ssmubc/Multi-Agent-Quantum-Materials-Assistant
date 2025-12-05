@@ -28,7 +28,8 @@ export AWS_PROFILE=your-profile-name
 python run_local.py
 ```
 
-**✅ Success**: App opens at http://localhost:8501
+**Local Login**: Username: `demo`, Password: `quantum2025`
+Cognito authentication is only used for AWS Elastic Beanstalk deployment.
 
 # AWS Deployment
 
@@ -155,6 +156,16 @@ python deployment/setup_cloudfront.py
 ```
 **Benefits**: Free SSL, global CDN, 15-20 minutes deployment time
 
+## Security Status
+**✅ All Critical Vulnerabilities Fixed:**
+- Authentication bypass - Resolved with proper auth validation
+- Command injection - Fixed with input validation and subprocess security
+- Secrets exposure - Moved to AWS Secrets Manager
+- Input validation - Comprehensive validation implemented
+- Rate limiting - 5 requests per 60 seconds implemented
+- Security headers - HTTP security headers configured
+- Audit logging - Security event tracking enabled
+
 ## Cost Estimation
 - **t3.medium** (minimum): ~$30-35/month
 - **t3.large** (recommended): ~$60-70/month  
@@ -170,6 +181,11 @@ python deployment/setup_cloudfront.py
 - Check IAM permissions are correctly configured
 - Verify all required files in deployment package
 - Check application logs in EB console
+
+**Testing and Quality Assurance:**
+- Current test coverage: 0% (development phase)
+- Recommended tools: pytest, bandit (security), safety (dependencies)
+- Priority testing areas: Authentication, MCP client, agent workflows
 
 **Models not working:**
 - Ensure Bedrock access enabled in AWS Console
