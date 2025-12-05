@@ -10,8 +10,9 @@ import traceback
 import base64
 from io import BytesIO
 
-# Import authentication
+# Import authentication and security
 from config.cognito_auth import get_auth_handler
+from utils.config_validator import validate_cognito_config, ConfigurationError, validate_query
 
 # Import our model classes
 from models.nova_pro_model import NovaProModel
@@ -38,13 +39,10 @@ from agents.strands_agentic_loop import StrandsAgenticLoop
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from utils.structured_logger import get_structured_logger
+logger = get_structured_logger(__name__)
 
-# Print startup message to console
-print("\n" + "="*60)
-print("🚀 QUANTUM MATTER STREAMLIT APP STARTING")
-print("📋 MCP logging is enabled - watch for [MCP LOG] messages")
-print("="*60 + "\n")
+# Startup message removed for production
 
 # Page configuration
 st.set_page_config(
@@ -120,6 +118,9 @@ st.markdown("""
 
 def initialize_session_state():
     """Initialize session state variables"""
+    # Clean up old session data first
+    cleanup_session_state()
+    
     if 'models_initialized' not in st.session_state:
         st.session_state.models_initialized = False
     if 'mp_agent' not in st.session_state:
@@ -132,6 +133,44 @@ def initialize_session_state():
         st.session_state.strands_supervisor = None
     if 'strands_agents' not in st.session_state:
         st.session_state.strands_agents = {}
+
+def cleanup_session_state():
+    """Clean up old session data to prevent memory leaks"""
+    import sys
+    import time
+    from config.app_config import AppConfig
+    
+    # Check for large objects in session state
+    if 'mp_agent' in st.session_state and st.session_state.mp_agent:
+        try:
+            size = sys.getsizeof(st.session_state.mp_agent)
+            if size > AppConfig.MAX_OBJECT_SIZE_MB * 1024 * 1024:
+                logger.warning(f"Large mp_agent object detected: {size} bytes, cleaning up")
+                if hasattr(st.session_state.mp_agent, 'cleanup'):
+                    st.session_state.mp_agent.cleanup()
+                st.session_state.mp_agent = None
+        except Exception as e:
+            logger.warning(f"Error checking mp_agent size: {e}")
+    
+    # Clear old cached data based on time
+    current_time = time.time()
+    if 'last_cleanup_time' not in st.session_state:
+        st.session_state.last_cleanup_time = current_time
+    
+    # Clean up based on configured interval
+    if current_time - st.session_state.last_cleanup_time > AppConfig.SESSION_CLEANUP_INTERVAL:
+        logger.info("Performing hourly session cleanup")
+        
+        # Clear cached model data
+        if 'models' in st.session_state:
+            for model_name, model_info in st.session_state.models.items():
+                if 'instance' in model_info and model_info['instance']:
+                    if hasattr(model_info['instance'], '_cached_mp_data'):
+                        model_info['instance']._cached_mp_data = None
+        
+        # Reset initialization flags to force refresh
+        st.session_state.models_initialized = False
+        st.session_state.last_cleanup_time = current_time
 
 
 def check_aws_credentials():
@@ -363,10 +402,27 @@ def display_model_status():
 
 def main():
     """Main application"""
-    # Check authentication first
+    # Validate secure configuration first
+    try:
+        cognito_config = validate_cognito_config()
+        if cognito_config:
+            # Set validated configuration in environment
+            for key, value in cognito_config.items():
+                os.environ[key] = value
+    except ConfigurationError as e:
+        st.error(f"❌ Configuration Error: {e}")
+        st.info("💡 Please configure required credentials in AWS Systems Manager Parameter Store or environment variables")
+        return
+    
+    # Check authentication with audit logging
+    from utils.audit_logger import audit_authentication
     auth_handler = get_auth_handler()
     if not auth_handler.render_auth_ui():
+        audit_authentication('login_required', 'anonymous', 'blocked')
         return
+    else:
+        user = st.session_state.get('username', 'authenticated_user')
+        audit_authentication('session_validated', user, 'success')
     
     # Setup logging display
     setup_logging_display()
@@ -748,7 +804,8 @@ def main():
             # Auto-determine Braket MCP usage based on framework selection
             force_braket_mcp = (braket_mode == "Amazon Braket Framework")
         
-        # Submit button
+        # Submit button with rate limiting
+        from utils.rate_limiter import TooManyRequestsError
         if st.button("🚀 Generate Response", type="primary", disabled=not query.strip()):
             if selected_model and query.strip():
                 # Show what will be used
@@ -769,10 +826,28 @@ def main():
                 else:
                     st.info("📝 **Code Output:** Qiskit/Qiskit-Nature code for quantum simulations")
                 
-                generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text, braket_mode, force_braket_mcp, show_debug)
+                from utils.audit_logger import audit_model_usage
+                try:
+                    audit_model_usage(selected_model, len(query), 'initiated')
+                    generate_response(selected_model, query, temperature, max_tokens, top_p, include_mp_data, demo_mode, agent_type, poscar_text, braket_mode, force_braket_mcp, show_debug)
+                    audit_model_usage(selected_model, len(query), 'success')
+                except TooManyRequestsError as e:
+                    audit_model_usage(selected_model, len(query), 'rate_limited')
+                    st.error(f"⚠️ {str(e)}")
+                    st.info("🕰️ Please wait before making another request")
+                except Exception as e:
+                    audit_model_usage(selected_model, len(query), 'error')
+                    raise
 
 def generate_response(model_name: str, query: str, temperature: float, max_tokens: int, top_p: float, include_mp_data: bool, demo_mode: bool = False, agent_type: str = "Standard Agents", poscar_text: str = None, braket_mode: str = "Qiskit Only", force_braket_mcp: bool = False, show_debug: bool = False):
     """Generate response using selected model or demo mode"""
+    
+    # Validate user input
+    try:
+        query = validate_query(query)
+    except ValueError as e:
+        st.error(f"❌ Invalid query: {e}")
+        return
     
     # Create debug callback function
     debug_messages = []
@@ -876,12 +951,9 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
         with spinner_container:
             with st.spinner(spinner_message):
                 try:
-                    # Log MCP usage
+                    # MCP usage (reduced logging)
                     if include_mp_data and st.session_state.mp_agent:
-                        if isinstance(st.session_state.mp_agent, EnhancedMCPAgent):
-                            logger.info(f"🔬 STREAMLIT: Using Enhanced MCP server for Materials Project data with query: '{query}'")
-                        else:
-                            logger.info(f"🔧 STREAMLIT: Using standard MP API for Materials Project data with query: '{query}'")
+                        logger.debug(f"Using MCP for query: {query[:30]}...")
                 
                     # Simple framework-based routing - no complex detection needed
                     if show_debug and braket_mode == "Amazon Braket Framework" and debug_placeholder:
@@ -894,8 +966,7 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                 
                     # Use framework selection directly - no keyword detection
                     if braket_mode == "Amazon Braket Framework":
-                        if not show_debug:  # Only show this if debug is off
-                            st.info("⚛️ Using Braket Framework - simple quantum algorithms only")
+                        # Framework selection (UI message removed)
                         
                         if show_debug and debug_placeholder:
                             debug_placeholder.success("⚛️ **Braket Framework Selected** - Processing with Braket MCP")
@@ -1467,8 +1538,10 @@ Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('cr
                                 # Fallback to generic display
                                 display_structure_data(material_data, "Material Structure")
                     
-                    # Code output (only if there is actual code and it's different from what's in the text)
+                    # Code output with security validation
                     if "code" in response and response["code"] is not None and response["code"].strip():
+                        from utils.code_security import validate_generated_code, get_secure_code_display
+                        
                         # Check if the code is already displayed in the response text
                         response_text = response.get("text", "")
                         code_content = response["code"].strip()
@@ -1484,8 +1557,26 @@ Material id: {material_id} Formula: {formula} Crystal System: {mp_result.get('cr
                         
                         # Only show separate code section if no substantial code is in the response
                         if not has_code_in_response and code_content not in response_text:
+                            # Validate code security
+                            security_check = validate_generated_code(code_content)
+                            
                             st.markdown("### 💻 Generated Code")
-                            st.code(response["code"], language="python")
+                            
+                            # Show security warning if issues found
+                            if not security_check['is_safe']:
+                                st.warning(f"⚠️ Security Review Required - {security_check['risk_level']} Risk")
+                                with st.expander("🔒 Security Issues Detected"):
+                                    for issue in security_check['issues']:
+                                        st.write(f"• {issue}")
+                            
+                            # Display code with security headers
+                            secure_code = get_secure_code_display(code_content)
+                            st.code(secure_code, language="python")
+                            
+                            # Add security guidelines
+                            with st.expander("🔒 Code Security Guidelines"):
+                                from utils.code_security import CodeSecurityValidator
+                                st.markdown(CodeSecurityValidator.get_safe_code_guidelines())
                     
                     # 3D Structure Plot (if MCP generated one)
                     if (include_mp_data and isinstance(st.session_state.mp_agent, EnhancedMCPAgent) and 
