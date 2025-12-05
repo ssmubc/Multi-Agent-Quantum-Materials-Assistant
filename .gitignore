@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.production
+config/.env
 
 # Note: .env.example and .env.template are templates and should be committed
 
