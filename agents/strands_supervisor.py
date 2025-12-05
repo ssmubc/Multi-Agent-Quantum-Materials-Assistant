@@ -2,8 +2,11 @@ import logging
 import json
 import re
 from typing import Dict, Any
+from utils.config_validator import validate_formula
+from utils.structured_logger import get_structured_logger
+from utils.shared_exceptions import ValidationError, ServiceUnavailableError
 
-logger = logging.getLogger(__name__)
+logger = get_structured_logger(__name__)
 
 # Mock classes for local testing
 class MockAgent:
@@ -29,6 +32,7 @@ try:
 except ImportError as e:
     logger.warning(f"Strands not available locally: {e}")
     STRANDS_AVAILABLE = False
+from .base_agent import BaseAgent
 from .strands_coordinator import StrandsCoordinator
 from .strands_dft_agent import StrandsDFTAgent
 from .strands_structure_agent import StrandsStructureAgent
@@ -36,11 +40,11 @@ from .strands_agentic_loop import StrandsAgenticLoop
 from utils.braket_integration import braket_integration
 from utils.mcp_tools_wrapper import initialize_mcp_wrapper, get_mcp_wrapper
 
-class StrandsSupervisorAgent:
+class StrandsSupervisorAgent(BaseAgent):
     """AWS Strands-based supervisor for quantum materials analysis"""
     
     def __init__(self, mp_agent):
-        self.mp_agent = mp_agent
+        super().__init__(mp_agent)
         
         # Initialize MCP wrapper for easier tool access
         initialize_mcp_wrapper(mp_agent)
@@ -50,8 +54,9 @@ class StrandsSupervisorAgent:
         
         try:
             # Create Strands agent with AWS tools and MCP integration
+            from config.app_config import AppConfig
             self.agent = Agent(
-                model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                model=AppConfig.DEFAULT_CLAUDE_MODEL,
                 tools=[use_aws],
                 system_prompt="You are a quantum materials analysis agent with access to Materials Project MCP tools through AWS. Always use the available tools to call MCP services when analyzing materials."
             )
@@ -109,6 +114,12 @@ class StrandsSupervisorAgent:
         if not formula or formula.strip() == "":
             logger.warning("⚠️ STRANDS: No formula detected, using fallback")
             formula = "Si"  # Safe fallback
+        else:
+            try:
+                formula = validate_formula(formula)
+            except ValueError as e:
+                logger.warning(f"⚠️ STRANDS: Invalid formula '{formula}': {e}, using Si")
+                formula = "Si"
         
         # First try direct MCP call, then let Strands agent enhance if needed
         mcp_wrapper = get_mcp_wrapper()
@@ -314,9 +325,15 @@ class StrandsSupervisorAgent:
             else:
                 return self._handle_standard_lookup(formula)
                 
+        except ValidationError as e:
+            logger.warning(f"Invalid input for MCP operation: {e}")
+            return {"status": "error", "message": f"Invalid input: {e}"}
+        except ServiceUnavailableError as e:
+            logger.error(f"MCP service unavailable: {e}")
+            return {"status": "error", "message": f"Service unavailable: {e}"}
         except Exception as e:
-            logger.error(f"💥 STRANDS: MCP execution error: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.critical(f"Unexpected error in MCP execution: {e}", exc_info=True)
+            return {"status": "error", "message": f"Unexpected error: {e}"}
     
     def _handle_moire(self, formula: str, query: str) -> dict:
         """Handle moire bilayer requests with enhanced MCP tools"""
