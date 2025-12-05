@@ -24,17 +24,14 @@ def require_auth():
     if 'authenticated' in st.session_state and st.session_state.authenticated:
         return True
     
-    # Check if CloudFront is enabled and skip auth for public access
-    if os.getenv('CLOUDFRONT_ENABLED') == 'true' and os.getenv('PUBLIC_ACCESS') == 'true':
-        st.session_state.authenticated = True
-        st.session_state.username = 'public'
-        return True
+    # CloudFront info display only - no authentication bypass
+    cloudfront_enabled = os.getenv('CLOUDFRONT_ENABLED') == 'true'
     
     # Show login page
     st.title("🔐 Quantum Matter LLM Platform - Login")
     
     # Add CloudFront info if enabled
-    if os.getenv('CLOUDFRONT_ENABLED') == 'true':
+    if cloudfront_enabled:
         st.info("🌐 Secure connection via AWS CloudFront")
     
     # Simple authentication form
@@ -46,8 +43,8 @@ def require_auth():
         if submit:
             if not DEMO_USERS:
                 st.error("❌ Authentication not configured. Set DEMO_USERNAME and DEMO_PASSWORD environment variables.")
-                if os.getenv('CLOUDFRONT_ENABLED') == 'true':
-                    st.info("💡 For public access via CloudFront, set PUBLIC_ACCESS=true")
+                if cloudfront_enabled:
+                    st.info("💡 CloudFront enabled - secure connection active")
             elif username in DEMO_USERS and DEMO_USERS[username] == password:
                 st.session_state.authenticated = True
                 st.session_state.username = username
@@ -57,3 +54,10 @@ def require_auth():
                 st.error("❌ Invalid credentials")
     
     return False
+
+class DemoAuth:
+    """Demo authentication handler for local development"""
+    
+    def render_auth_ui(self):
+        """Render authentication UI and return True if authenticated"""
+        return require_auth()
