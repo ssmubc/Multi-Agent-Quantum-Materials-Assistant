@@ -9,7 +9,19 @@ import streamlit as st
 import hmac
 import hashlib
 import base64
+import time
+import logging
 from botocore.exceptions import ClientError
+
+try:
+    import jwt
+    from jwt import PyJWKClient
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    logging.warning("PyJWT not available - token validation disabled")
+
+logger = logging.getLogger(__name__)
 
 class CustomCognitoAuth:
     def __init__(self):
@@ -35,6 +47,37 @@ class CustomCognitoAuth:
             digestmod=hashlib.sha256
         ).digest()
         return base64.b64encode(dig).decode()
+    
+    def validate_cognito_token(self, token: str) -> dict:
+        """Validate Cognito JWT token with signature verification"""
+        if not JWT_AVAILABLE:
+            logger.warning("JWT validation unavailable - install PyJWT")
+            return {"valid": False, "error": "JWT library not available"}
+        
+        try:
+            jwks_url = f"https://cognito-idp.{self.region}.amazonaws.com/{self.pool_id}/.well-known/jwks.json"
+            jwks_client = PyJWKClient(jwks_url)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            
+            decoded = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                options={"verify_exp": True, "verify_aud": False}
+            )
+            
+            logger.info(f"Token validated for user: {decoded.get('username', 'unknown')}")
+            return {"valid": True, "payload": decoded}
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning("Token expired")
+            return {"valid": False, "error": "Token expired"}
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid token: {e}")
+            return {"valid": False, "error": "Invalid token"}
+        except Exception as e:
+            logger.error(f"Token validation failed: {e}")
+            return {"valid": False, "error": str(e)}
     
     def signup_user(self, email, password):
         """Sign up a new user"""
@@ -114,13 +157,21 @@ class CustomCognitoAuth:
             
             response = self.cognito.initiate_auth(**params)
             
-            # Store tokens in session
-            st.session_state['authenticated'] = True
-            st.session_state['username'] = email
-            st.session_state['auth_method'] = 'custom_cognito'
-            st.session_state['access_token'] = response['AuthenticationResult']['AccessToken']
+            # Validate and store tokens
+            access_token = response['AuthenticationResult']['AccessToken']
+            validation_result = self.validate_cognito_token(access_token)
             
-            return True, "Login successful!"
+            if validation_result.get('valid'):
+                st.session_state['authenticated'] = True
+                st.session_state['username'] = email
+                st.session_state['auth_method'] = 'custom_cognito'
+                st.session_state['access_token'] = access_token
+                st.session_state['token_validated'] = True
+                logger.info(f"User {email} authenticated with validated token")
+                return True, "Login successful!"
+            else:
+                logger.error(f"Token validation failed for {email}: {validation_result.get('error')}")
+                return False, "Authentication failed - invalid token"
             
         except ClientError as e:
             error_code = e.response['Error']['Code']
