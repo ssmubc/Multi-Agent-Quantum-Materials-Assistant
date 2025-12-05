@@ -1,6 +1,7 @@
 import json
 import logging
 import boto3
+import time
 from botocore.exceptions import ClientError
 from typing import Optional
 
@@ -17,6 +18,9 @@ def get_mp_api_key(secret_name: str = "materials-project/api-key", region_name: 
     Returns:
         API key string or None if not found
     """
+    # Audit log secret access
+    logger.info(f"Accessing secret {secret_name} from region {region_name} at {time.time()}")
+    
     try:
         # Create Secrets Manager client
         secrets_client = boto3.client('secretsmanager', region_name=region_name)
