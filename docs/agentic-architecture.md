@@ -1,104 +1,147 @@
 # Agentic Architecture - AI Agents and MCP Servers
 
+## What Are AI Agents?
+
+Think of AI agents as specialized digital assistants, each with expertise in different areas. Instead of one large AI trying to handle everything, we use multiple focused agents that work together like a research team.
+
+**Business Value**: This approach provides more accurate, specialized responses while maintaining system reliability. If one agent fails, others continue working.
+
+## What is MCP (Model Context Protocol)?
+
+MCP is a communication standard that allows AI agents to access external databases and tools. It's like giving the AI agents access to specialized libraries and research databases.
+
+**Real-World Analogy**: Imagine a research team where each scientist can instantly access the world's largest materials database or quantum computing resources. That's what MCP provides for our AI agents.
+
+## What is DFT (Density Functional Theory)?
+
+DFT is a computational method used to calculate the electronic properties of materials. It helps predict how electrons behave in crystals, which is essential for understanding material properties like conductivity and magnetism.
+
+**Why It Matters**: DFT parameters are needed to create accurate quantum simulations of real materials. Without them, quantum algorithms would be working with made-up numbers instead of real physics.
+
+## What are POSCAR Files?
+
+POSCAR files are text files that describe crystal structures - they contain information about:
+- What atoms are in the material
+- How the atoms are arranged in 3D space
+- The size and shape of the crystal unit cell
+
+**Think of it as**: A blueprint that tells you exactly how to build a crystal structure, atom by atom.
+
+## How This Architecture Benefits You
+
+This system transforms complex quantum computing and materials science into an accessible, intelligent assistant that:
+
+- **Understands Context**: Knows the difference between asking about silicon vs. asking about quantum entanglement
+- **Provides Real Data**: Uses actual materials databases instead of generating fictional properties
+- **Explains Concepts**: Breaks down complex physics into understandable explanations
+- **Generates Working Code**: Creates quantum circuits that actually work with real materials
+
 ## Overview
 
-The Quantum Matter platform uses an advanced agentic architecture combining AWS Strands agents with Model Context Protocol (MCP) servers to provide intelligent quantum computing and materials science assistance.
-
-## Architecture Diagram
-
-[Placeholder for draw.io diagram - will show agent workflow and MCP server interactions]
+The Quantum Matter platform uses this advanced agentic architecture combining AI Strands Agents with Model Context Protocol (MCP) servers to provide intelligent quantum computing and materials science assistance.
 
 ## Core Components
 
-### 1. AWS Strands Agents
+### 1. Strands Agents ([AWS Blog Post on Strands Agents](https://aws.amazon.com/blogs/opensource/introducing-strands-agents-an-open-source-ai-agents-sdk/))
 
-The platform uses 5 specialized AWS Strands agents for different workflows:
+**What They Do**: These are specialized AI assistants that handle different aspects of quantum computing and materials science research. Each agent focuses on specific tasks to provide expert-level assistance.
+
+**Business Impact**: Instead of generic responses, you get specialized expertise equivalent to having quantum physicists, materials scientists, and computational experts on your team.
+
+The platform uses 5 specialized AI Strands Agents for different workflows:
 
 #### Supervisor Agent ([`strands_supervisor.py`](../agents/strands_supervisor.py))
-- **Role**: Main workflow coordinator and query router
-- **Functionality**: 
-  - Analyzes incoming queries to determine workflow type
-  - Routes to appropriate specialized agents
-  - Handles simple queries directly via MCP
-  - Manages fallback to basic responses when needed
-- **Workflow Detection**:
-  - Simple Query → Direct MCP interaction
-  - POSCAR Analysis → Structure matching workflow
-  - Complex Query → Multi-agent coordination
+- **Role**: Main workflow coordinator and query router (like a research team leader)
+- **What It Does for You**: 
+  - Understands what type of help you need from your question
+  - Connects you to the right specialist for your specific problem
+  - Handles straightforward questions directly for fast responses
+  - Ensures you always get an answer, even if some systems are down
+- **Decision Making**:
+  - Simple material lookup → Direct database search
+  - Crystal structure analysis → Connects to structure specialist
+  - Complex research question → Coordinates multiple experts
 
 #### Coordinator Agent ([`strands_coordinator.py`](../agents/strands_coordinator.py))
-- **Role**: Multi-agent task orchestration
-- **Functionality**:
-  - Manages dependencies between agents
-  - Creates task definitions for complex workflows
-  - Coordinates parallel agent execution
-  - Aggregates results from multiple agents
-- **Use Cases**:
-  - Multi-material analysis
-  - Complex quantum simulation workflows
-  - Batch processing tasks
+- **Role**: Multi-agent task orchestration (like having a project coordinator)
+- **What It Does for You**:
+  - Manages complex research projects that need multiple specialists
+  - Ensures different experts work together efficiently without conflicts
+  - Combines results from multiple specialists into comprehensive reports
+  - Handles parallel processing to get faster results
+- **Research Applications**:
+  - Comparative studies across multiple materials
+  - Complex quantum simulation projects requiring multiple analysis steps
+  - Large-scale batch processing of materials data
 
 #### DFT Agent ([`strands_dft_agent.py`](../agents/strands_dft_agent.py))
-- **Role**: Density Functional Theory parameter extraction
-- **Functionality**:
-  - Extracts DFT parameters from literature and databases
-  - Validates computational parameters
-  - Provides empirical correlations for unknown materials
-  - Generates VASP/Quantum ESPRESSO input files
-- **Knowledge Base**:
-  - Literature DFT parameter database
-  - Exchange-correlation functional recommendations
-  - K-point mesh and cutoff energy guidelines
+- **Role**: Materials physics specialist (like having a computational physicist on your team)
+- **What It Does for You**:
+  - Finds the right physics parameters for your materials from research literature
+  - Ensures quantum simulations use realistic, validated numbers
+  - Converts complex physics data into usable quantum circuit parameters
+  - Creates input files for professional materials simulation software
+- **Expert Knowledge**:
+  - Database of published research parameters for thousands of materials
+  - Best practices for different types of materials calculations
+  - Quality validation to ensure physically meaningful results
 
 #### Structure Agent ([`strands_structure_agent.py`](../agents/strands_structure_agent.py))
-- **Role**: Crystal structure analysis and matching
-- **Functionality**:
-  - Analyzes POSCAR files and crystal structures
-  - Matches structures to Materials Project database
-  - Provides symmetry analysis and space group identification
-  - Generates structure visualizations
-- **Integration**:
-  - Pymatgen for structure manipulation
-  - Materials Project API for database matching
-  - Crystallographic analysis tools
+- **Role**: Crystal structure specialist (like having a crystallographer on your team)
+- **What It Does for You**:
+  - Analyzes crystal structure files to understand material composition and arrangement
+  - Identifies your material by comparing against 150,000+ known structures
+  - Explains the symmetry and geometric properties of your crystal
+  - Creates 3D visualizations so you can see how atoms are arranged
+- **Professional Tools**:
+  - Advanced crystallographic analysis software
+  - Access to the world's largest materials structure database
+  - Professional-grade structure visualization capabilities
 
 #### Agentic Loop Agent ([`strands_agentic_loop.py`](../agents/strands_agentic_loop.py))
-- **Role**: Iterative problem solving for complex queries
-- **Functionality**:
-  - Breaks down complex problems into subtasks
-  - Iteratively refines solutions based on feedback
-  - Handles multi-step quantum simulation workflows
-  - Provides batch processing for multiple materials
-- **Use Cases**:
-  - Complex multi-material queries
-  - Iterative optimization problems
-  - Research workflow automation
+- **Role**: Research workflow coordinator (like having a research project manager)
+- **What It Does for You**:
+  - Handles complex research questions that require multiple steps
+  - Compares multiple materials systematically
+  - Refines and improves results through iterative analysis
+  - Automates repetitive research tasks across many materials
+- **Research Capabilities**:
+  - Multi-material comparative studies
+  - Complex optimization workflows
+  - Automated research pipeline execution
 
-### 2. MCP Servers
+### 2. MCP Servers (External Data Sources)
+
+**What They Provide**: These are specialized data connectors that give the AI agents access to external databases and quantum computing resources.
+
+**Business Value**: Instead of generating fictional data, the AI agents can access real materials databases with 150,000+ crystal structures and actual quantum computing hardware specifications.
 
 The platform integrates two main MCP servers for external data access:
 
 #### Enhanced Materials Project MCP Server ([`enhanced_mcp_materials/`](../enhanced_mcp_materials/))
-- **Purpose**: Robust access to Materials Project database with 8 specialized tools
-- **Functionality**:
-  - Material search by chemical formula
-  - Crystal structure retrieval and visualization
-  - 3D structure plotting with unit cell wireframes
-  - Supercell generation with customizable scaling
-  - Moiré bilayer creation for 2D materials
-  - POSCAR/CIF structure creation and analysis
-  - Electronic properties lookup (band gaps, formation energies)
-  - Auto-recovery and fallback mechanisms
-- **8 MCP Tools**: See [Materials Project MCP Integration Guide](materials-project-mcp-integration.md) for complete tool documentation
+- **What It Provides**: Direct access to the world's largest open materials database with 150,000+ crystal structures
+- **Business Value**: Eliminates the need for expensive materials databases or manual literature searches - get instant access to validated experimental and computational data
+- **Key Capabilities**:
+  - **Instant Material Lookup**: Find any material by chemical formula (e.g., "TiO2", "LiFePO4")
+  - **3D Visualization**: See exactly how atoms are arranged in your material
+  - **Electronic Properties**: Get band gaps, formation energies, and stability data
+  - **Structure Analysis**: Automatic crystal structure analysis and validation
+  - **Advanced Features**: Supercell generation and 2D material bilayer creation
+  - **Reliability**: Auto-recovery system ensures continuous access to data
+- **Professional Impact**: Equivalent to having a materials science library and crystallography lab at your fingertips
+- **8 Specialized Tools**: See [Materials Project MCP Integration Guide](materials-project-mcp-integration.md) for complete capabilities
 
 #### Amazon Braket MCP Server ([`BraketMCP/`](../BraketMCP/))
-- **Purpose**: Educational quantum circuit analysis and visualization
-- **Functionality**:
-  - Quantum circuit creation (Bell, GHZ, VQE demonstrations)
-  - Circuit analysis and ASCII visualization
-  - Educational quantum algorithm examples
-  - Device information and capabilities
-- **Integration**: See [Braket Integration Guide](braket-integration.md) for complete setup and usage documentation
+- **What It Provides**: Educational quantum computing tools and real quantum hardware information
+- **Business Value**: Learn quantum computing concepts with professional-grade tools without expensive quantum hardware access
+- **Key Capabilities**:
+  - **Interactive Learning**: Step-by-step quantum algorithm explanations with visual diagrams
+  - **Circuit Visualization**: ASCII diagrams showing exactly how quantum gates work
+  - **Real Hardware Info**: Access specifications of actual quantum computers (IonQ, Rigetti, etc.)
+  - **Materials Integration**: VQE circuits optimized for real materials science applications
+  - **Cost-Free Education**: Learn quantum computing without paying for quantum hardware execution
+- **Educational Impact**: Equivalent to having a quantum computing textbook that generates working code examples
+- **Complete Guide**: See [Braket Integration Guide](braket-integration.md) for setup and usage
 
 ## Agent Workflow Patterns
 
@@ -219,61 +262,34 @@ User Query → Braket MCP → Amazon Braket Code Generation
 
 ### Multi-Agent Coordination Examples
 
-**Complex Query Processing**:
+**DFT Parameter Extraction**:
 ```
 Query: "Generate tight-binding Hamiltonian for silicon mp-149 with DFT parameters"
 
-Workflow:
-1. Supervisor Agent: Detects DFT parameter extraction need
-2. DFT Agent: 
-   - Calls select_material_by_id("mp-149")
-   - Extracts band gap (1.17 eV) and formation energy (-5.425 eV/atom)
-   - Applies literature correlations: U = 2 * |formation_energy|, t = band_gap/4
-   - Generates Hubbard model: U = 10.85 eV, t = 0.29 eV
-3. Code Generation: Creates Qiskit VQE ansatz with extracted parameters
-4. Response: Complete Hamiltonian code with real DFT values
+Simple Process:
+1. Supervisor routes to DFT Agent
+2. DFT Agent gets material data and calculates physics parameters
+3. System generates working quantum code with real values
 ```
 
-**POSCAR Analysis Workflow**:
+**Structure Analysis**:
 ```
 Query: "Analyze this POSCAR structure and match to Materials Project"
 
-Workflow:
-1. Supervisor Agent: Detects POSCAR analysis need
-2. Coordinator Agent: Orchestrates complete workflow
-3. Structure Agent:
-   - Parses POSCAR: extracts Si2 with diamond structure
-   - Calculates lattice parameters: a=5.43 Å
-   - Identifies space group: Fd-3m (#227)
-4. Materials Project Matching:
-   - Searches MP database for similar Si structures
-   - Finds match: mp-149 (silicon, diamond structure)
-   - Validates structural similarity
-5. DFT Agent: Extracts electronic properties for matched material
-6. Response: Complete structure analysis with MP match and properties
+Simple Process:
+1. Structure Agent reads your crystal structure file
+2. Searches database to identify the material
+3. Returns material properties and 3D visualization
 ```
 
 **Multi-Material Comparison**:
 ```
 Query: "Compare DFT parameters between silicon, germanium, and carbon"
 
-Workflow:
-1. Supervisor Agent: Detects multi-material comparison
-2. Agentic Loop Agent: Manages iterative processing
-3. Iteration 1: Process Silicon
-   - search_materials_by_formula("Si") → mp-149
-   - Extract: Band gap 1.17 eV, Formation energy -5.425 eV/atom
-4. Iteration 2: Process Germanium  
-   - search_materials_by_formula("Ge") → mp-32
-   - Extract: Band gap 0.744 eV, Formation energy -3.85 eV/atom
-5. Iteration 3: Process Carbon
-   - search_materials_by_formula("C") → mp-66 (diamond)
-   - Extract: Band gap 5.48 eV, Formation energy 0.0 eV/atom
-6. Comparative Analysis:
-   - Band gap trend: C > Si > Ge (expected for group IV)
-   - Stability: Si most stable, C least stable in diamond form
-   - Tight-binding parameters calculated for each
-7. Response: Comprehensive comparison table with DFT parameters
+Simple Process:
+1. Agentic Loop processes each material in parallel
+2. Extracts properties for Si, Ge, and C
+3. Creates comparison table showing trends and differences
 ```
 
 ## Performance Optimization
@@ -306,8 +322,8 @@ Workflow:
 
 ## Development and Testing
 
-### AWS Strands Integration
-- **Production Agents**: Real AWS Strands agents using Claude Sonnet 4.5 for intelligent reasoning
+### AI Strands Integration
+- **Strands Agents**: Real AI Strands Agents using Claude Sonnet 4.5 for intelligent reasoning
 - **Strands Tools Integration**: Multiple tools from `strands-agents-tools`:
   - `use_aws` - AWS service integration for MCP calls and resource access
   - `retrieve` - Information retrieval for knowledge augmentation
@@ -322,33 +338,3 @@ Workflow:
 - **Integration Tests**: End-to-end workflow testing
 - **Performance Tests**: Load testing for MCP servers
 - **Fallback Testing**: Verify fallback mechanisms work correctly
-
-## Future Enhancements
-
-### Planned Agent Features
-- **Learning Capabilities**: Agents learn from user interactions
-- **Custom Workflows**: User-defined agent workflows
-- **External Integrations**: Additional MCP servers for new data sources
-- **Advanced Reasoning**: Enhanced problem-solving capabilities
-
-### Scalability Improvements
-- **Agent Clustering**: Distribute agents across multiple instances
-- **Load Balancing**: Intelligent agent load distribution
-- **Caching Layers**: Multi-level caching for improved performance
-- **Monitoring**: Advanced agent performance monitoring
-
-## Security Considerations
-
-### Agent Security
-- **Sandboxing**: Agents run in isolated environments
-- **Permission Management**: Least privilege access for agents
-- **Input Validation**: Sanitize all agent inputs
-- **Output Filtering**: Validate agent outputs before display
-
-### MCP Security
-- **Authentication**: Secure MCP server authentication
-- **Encryption**: All MCP communications encrypted
-- **Access Control**: Role-based access to MCP servers
-- **Audit Logging**: Complete audit trail of MCP interactions
-
-This agentic architecture provides a sophisticated, scalable platform for quantum computing and materials science research, combining the power of specialized AI agents with comprehensive external data access through MCP servers.
