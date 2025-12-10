@@ -6,6 +6,17 @@
 
 ![Alt text](images/ArchitectureDiagramQuantumStreamlitApp.png)
 
+## AWS Service Interaction Workflow
+
+**User Request Flow:**
+CloudFront CDN routes users to Application Load Balancer → Elastic Beanstalk hosts Streamlit app → Cognito authenticates users with JWT tokens.
+
+**AI Processing Chain:**
+Secrets Manager provides API keys → Streamlit app calls AWS Bedrock (8 LLM models) → Strands Agents coordinate multi-agent workflows based on query type.
+
+**Data Integration:**
+Qiskit Framework: Materials Project MCP server retrieves crystallographic data → Braket Framework: Amazon Braket MCP provides quantum device information → All responses stream back through the same path to users.
+
 ### Description
 
 1. **User Interface** - Users interact with the Streamlit web application through their browser.
@@ -30,19 +41,16 @@
 ## Model Architecture
 
 ### LLM Models
-Each model is implemented as a separate class inheriting from `BaseModel`:
+The application provides access to 8 foundation models through [AWS Bedrock](https://aws.amazon.com/bedrock/), each implemented as a separate class inheriting from `BaseModel`:
 
 - **Nova Pro** (`nova_pro_model.py`) - Amazon's multimodal model
-- **Llama 3 70B** (`llama3_model.py`) - Meta's large language model
+- **Llama 3 70B** (`llama3_model.py`) - Meta's large language model  
 - **Llama 4 Scout** (`llama4_model.py`) - Meta's instruction-tuned model
+- **Claude Sonnet 4.5** (`claude_sonnet_model.py`) - Anthropic's advanced reasoning model
+- **Claude Opus 4.1** (`claude_opus_model.py`) - Anthropic's complex analysis model
 - **OpenAI GPT OSS** (`openai_model.py`) - OpenAI's open-source model
 - **Qwen 3-32B** (`qwen_model.py`) - Alibaba's reasoning model
 - **DeepSeek R1** (`deepseek_model.py`) - DeepSeek's problem-solving model
-
-### Model Regions
-Models are distributed across AWS regions for optimal performance:
-- **us-east-1**: Nova Pro, Llama 4 Scout, Qwen 3-32B, DeepSeek R1
-- **us-west-2**: Llama 3 70B, OpenAI GPT OSS
 
 ## AWS Strands Agents
 
