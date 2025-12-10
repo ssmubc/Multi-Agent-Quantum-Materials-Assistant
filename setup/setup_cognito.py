@@ -8,6 +8,7 @@ import boto3
 import json
 import os
 import sys
+import getpass
 from botocore.exceptions import ClientError
 
 def create_cognito_user_pool():
@@ -366,7 +367,7 @@ def main():
     create_test = input("\\n🧪 Create test user? (y/n): ").lower().strip()
     if create_test == 'y':
         email = input("📧 Test user email: ").strip()
-        password = input("🔑 Test user password (min 8 chars): ").strip()
+        password = getpass.getpass("🔑 Test user password (min 8 chars): ").strip()
         
         if email and password and len(password) >= 8:
             create_test_user(config['user_pool_id'], email, password)
