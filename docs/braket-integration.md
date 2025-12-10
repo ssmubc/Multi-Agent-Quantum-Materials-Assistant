@@ -1,12 +1,46 @@
 # Amazon Braket Integration Guide
 
-## Overview
-This guide explains how to set up and use Amazon Braket MCP integration in the Quantum Matter application for quantum circuit design, analysis, and visualization.
+## What is Amazon Braket?
 
-## What is Amazon Braket MCP?
-The Amazon Braket MCP integration provides quantum circuit analysis, visualization, and educational tools for quantum computing development. It processes quantum circuits through the Braket MCP server to generate detailed ASCII visualizations, circuit analysis, and step-by-step explanations without executing on actual quantum hardware.
+[Amazon Braket](https://aws.amazon.com/braket/) is AWS's quantum computing service that provides access to quantum simulators and real quantum hardware from companies like IonQ, Rigetti, and Oxford Quantum Computing. Think of it as a cloud platform where you can design, test, and run quantum algorithms.
 
-## AWS Credentials and Permissions
+**Business Value**: Braket enables researchers and developers to experiment with quantum computing without investing in expensive quantum hardware. You can prototype quantum algorithms, test them on simulators, and eventually run them on real quantum computers.
+
+## What is MCP (Model Context Protocol)?
+
+MCP is a communication standard that allows AI applications to connect to external data sources and tools. In our case, the Braket MCP server acts as a bridge between the AI models and quantum computing capabilities.
+
+**Why MCP Matters**: Instead of the AI generating random quantum code, it can access real quantum device information, create proper circuit visualizations, and provide educational explanations based on actual quantum computing principles.
+
+## How This Integration Helps You
+
+The Braket MCP integration transforms the Quantum Matter application from a basic code generator into an intelligent quantum computing assistant that:
+
+- **Educates**: Explains quantum concepts with step-by-step breakdowns
+- **Visualizes**: Shows ASCII circuit diagrams and quantum state evolution
+- **Validates**: Ensures generated circuits follow quantum computing best practices
+- **Connects**: Links theoretical concepts to real quantum hardware capabilities
+
+## What You Can Do
+
+With this integration, you can ask questions like:
+- "Show me how quantum entanglement works with a Bell pair"
+- "Create a VQE circuit for hydrogen molecule optimization"
+- "What quantum computers are available and what can they do?"
+- "Explain quantum superposition with a simple example"
+
+The system will provide educational explanations, working code, and visual diagrams to help you understand quantum computing concepts.
+
+## Setting Up AWS Access
+
+### Why Do You Need AWS Permissions?
+
+To use Amazon Braket features, the application needs permission to:
+- **Query quantum devices**: Check what simulators and hardware are available
+- **Access device information**: Get specifications like qubit counts and gate sets
+- **Store results**: Save quantum computation results to S3 storage
+
+Think of [IAM permissions](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html) as a security keycard that grants specific access to AWS services.
 
 ### Required IAM Permissions
 Your AWS credentials need these permissions for Braket integration:
@@ -52,15 +86,15 @@ Your AWS credentials need these permissions for Braket integration:
 ### Setting Up IAM Permissions
 
 **For Local Development:**
-1. Create IAM user with Braket permissions (JSON above)
-2. Configure credentials: `aws configure`
-3. Or use AWS SSO: `aws configure sso`
+1. Create [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html) with Braket permissions (JSON above)
+2. Configure credentials: `aws configure` (see [AWS CLI configuration guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html))
+3. Or use [AWS SSO](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html): `aws configure sso`
 
 **For Elastic Beanstalk:**
-1. Go to IAM Console → Roles
+1. Go to [IAM Console](https://console.aws.amazon.com/iam/) → Roles
 2. Find `aws-elasticbeanstalk-ec2-role`
 3. Click **Add permissions** → **Attach policies**
-4. Search and select `AmazonBraketFullAccess` (recommended)
+4. Search and select [`AmazonBraketFullAccess`](https://docs.aws.amazon.com/braket/latest/developerguide/braket-manage-access.html) (recommended)
 5. Click **Add permissions**
 6. Deploy application - permissions are automatically available
 
