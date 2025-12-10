@@ -42,7 +42,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 from utils.structured_logger import get_structured_logger
 logger = get_structured_logger(__name__)
 
-# Startup message removed for production
 
 # Page configuration
 st.set_page_config(
