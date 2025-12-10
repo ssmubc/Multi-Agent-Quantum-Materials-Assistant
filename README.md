@@ -6,7 +6,8 @@ This project harnesses generative AI on AWS Cloud Infrastructure to enable quant
 | Index | Description |
 |-------|-------------|
 | [High Level Architecture](docs/architecture.md) | High level overview illustrating component interactions |
-| [Deployment](#aws-deployment) | Complete deployment guide for local development and AWS production |
+| [Security Guide](docs/securityGuide.md) | Security architecture and best practices documentation |
+| [Deployment Guide](docs/deployment-guide.md) | Complete deployment guide for local and AWS development |
 | [User Guide](docs/user-guide.md) | The working solution and interface guide |
 | [Agentic Architecture](docs/agentic-architecture.md) | Detailed documentation on Strands agentic workflows |
 | [Braket Integration](docs/braket-integration.md) | Amazon Braket quantum computing integration |
@@ -23,7 +24,7 @@ The following architecture diagram illustrates the various AWS components utiliz
 
 ## Features
 
-- **8 Advanced LLM Models** across us-east-1 and us-west-2 regions
+- **8 Advanced LLM Models** with diverse capabilities and specializations
 - **Quantum Computing Frameworks**: Qiskit integration with Materials Project data + Amazon Braket SDK for quantum circuits and device information
 - **Materials Project Integration** with real-time MCP server and auto-recovery
 - **Strands Agentic Workflows** for multi-material analysis and DFT parameters
@@ -42,18 +43,7 @@ For detailed setup requirements, see [Deployment Guide](docs/deployment-guide.md
 
 ## Quick Start
 
-### Local Development (5 minutes)
-```bash
-git clone <repository-url>
-cd Quantum_Matter_Streamlit_App
-pip install -r requirements.txt
-python setup/setup_secrets.py  # Store Materials Project API key
-export AWS_PROFILE=your-profile-name
-python run_local.py
-```
-
-### AWS Production Deployment
-See [Deployment Guide](docs/deployment-guide.md) for complete instructions.
+See [Deployment Guide](docs/deployment-guide.md) for complete setup and deployment instructions.
 
 ## Example Queries
 
@@ -78,53 +68,36 @@ Create a quantum simulation for graphene using Materials Project data
 ## Directories
 
 ```
-├── .ebextensions/          # AWS Elastic Beanstalk configuration
-│   └── 07_cognito_config.config  # Cognito authentication setup
+├── .ebextensions/          # AWS Elastic Beanstalk configuration files
+├── .streamlit/             # Streamlit configuration
 ├── agents/                 # Strands agentic workflow implementations
-├── config/                 # Authentication and configuration
-│   ├── cognito_auth.py     # Cognito authentication handler
-│   ├── custom_cognito_auth.py  # Custom 3-tab Cognito interface
-│   └── auth_module.py      # Demo authentication fallback
+├── BraketMCP/             # Amazon Braket MCP server implementation
+├── config/                 # Application configuration and authentication
 ├── deployment/             # AWS deployment scripts and CloudFront setup
 ├── docs/                   # Complete documentation and guides
-├── enhanced_mcp_materials/ # Materials Project MCP server with auto-recovery
+├── enhanced_mcp_materials/ # Enhanced Materials Project MCP server
 ├── models/                 # All 8 LLM model implementations with streaming
-├── setup/                  # Setup utilities for AWS services
-│   └── setup_cognito.py    # Cognito User Pool creation
+├── setup/                  # Setup utilities for AWS services and secrets
 ├── utils/                  # Core utilities for MCP, Braket, AWS integration
-├── BraketMCP/             # Amazon Braket MCP server
 ├── app.py                 # Main Streamlit application
+├── demo_mode.py           # Demo authentication fallback
+├── run_local.py           # Local development runner
 └── requirements.txt       # Python dependencies
 ```
 
-## Model Configurations
-
-| Model | Region | Use Case |
-|-------|--------|----------|
-| Nova Pro | us-east-1 | Multimodal, latest features |
-| Llama 4 Scout | us-east-1 | Fast, efficient |
-| Llama 3 70B | us-west-2 | High quality, detailed |
-| Claude Sonnet 4.5 | us-east-1 | Advanced reasoning, coding |
-| Claude Opus 4.1 | us-east-1 | Complex analysis, research |
-| OpenAI OSS-120B | us-west-2 | Alternative approach |
-| Qwen 3-32B | us-east-1 | Advanced reasoning, structured output |
-| DeepSeek R1 | us-east-1 | Reasoning and problem-solving |
-
-## Cost Estimation (AWS)
-
-- **t3.medium**: ~$30-35/month (minimum)
-- **t3.large**: ~$60-70/month (recommended)
-- **t3.xlarge**: ~$120-140/month (heavy usage)
-- **CloudFront SSL/CDN**: $0/month (free tier)
-- **Cognito**: $0/month (free tier)
-
-## Security Best Practices
-
-1. Use AWS IAM roles instead of hardcoded credentials
-2. Store API keys in AWS Secrets Manager
-3. Enable CloudWatch logging for monitoring
-4. Use least privilege IAM permissions
-5. Deploy with CloudFront for SSL/TLS and DDoS protection
+1. `/.ebextensions`: Contains AWS Elastic Beanstalk configuration files for environment setup, security headers, Cognito authentication, and MCP server installation
+2. `/.streamlit`: Contains Streamlit application configuration including security settings, CORS configuration, and UI theme customization
+3. `/agents`: Contains Strands agentic workflow implementations for multi-material analysis, DFT parameter optimization, and quantum structure generation
+4. `/BraketMCP`: Contains Amazon Braket MCP server implementation with quantum device access, circuit visualization, and quantum computing tools
+    - `/amazon-braket-mcp-server`: Core Braket MCP server with quantum device integration and circuit tools
+5. `/config`: Contains application configuration and authentication modules including Cognito integration, custom auth handlers, and environment configuration
+6. `/deployment`: Contains AWS deployment scripts, CloudFront setup, Dockerfile for containerized deployment, and Elastic Beanstalk configuration
+7. `/docs`: Contains comprehensive documentation including architecture guides, security documentation, user guides, and deployment instructions
+    - `/images`: Documentation images and architecture diagrams
+8. `/enhanced_mcp_materials`: Contains enhanced Materials Project MCP server with auto-recovery, advanced structure analysis, and real-time data synchronization
+9. `/models`: Contains all 8 LLM model implementations with streaming support, error handling, and model-specific optimizations for quantum computing tasks
+10. `/setup`: Contains setup utilities for AWS services including Cognito User Pool creation, secrets management, and automated service configuration
+11. `/utils`: Contains core utilities for MCP integration, Braket quantum computing, AWS service clients, security validation, audit logging, and rate limiting
 
 ## Troubleshooting
 
