@@ -1,39 +1,47 @@
 # Deployment Guide
 
 ## Quick Navigation
-- [Local Development (5 min)](#local-development)
-- [AWS Production Deployment (25 min)](#aws-deployment)
+- [Prerequisites](#prerequisites)
+- [Local Development (Optional)](#local-development-optional)
+- [AWS Deployment (25 min)](#aws-deployment)
+  - [Phase 1: Setup AWS Resources](#phase-1-setup-aws-resources-10-minutes)
+  - [Phase 2: Deploy Application](#phase-2-deploy-application-15-minutes)
+  - [Phase 3: Optional Enhancements](#phase-3-optional-enhancements)
+- [Security Measures](#security-measures-implemented)
 - [Troubleshooting](#troubleshooting)
 
+## Prerequisites
+
+### AWS Account Setup
+Before starting, you need an AWS account with proper access:
+
+1. **Create AWS Account**: Visit [aws.amazon.com](https://aws.amazon.com/) and create a free account
+2. **Install AWS CLI**: Follow the [AWS CLI installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+3. **Configure SSO**: Run `aws configure sso` or see [AWS SSO configuration guide](https://docs.aws.amazon.com/cli/latest/userguide/sso-configure-profile-token.html)
+
+### Required Tools
+- **Python 3.8+**: Download from [python.org](https://www.python.org/downloads/)
+- **Materials Project API Key**: Register at [materialsproject.org](https://materialsproject.org/) for free API access
+
 ## Overview
-**Local Development**: Test on your computer  
-**AWS Production**: Deploy with SSL and global CDN
+**Local Development (Optional)**: Test locally with demo authentication  
+**AWS Deployment**: Deploy with enterprise authentication, SSL, and global CDN
 
-# Local Development
-
-**Prerequisites**: Python 3.8+, AWS CLI, Materials Project API key
-
-## Quick Start (5 minutes)
+## Local Development (Optional)
 ```bash
-# 1. Clone and install
 git clone <repository-url>
 cd Quantum_Matter_Streamlit_App
 pip install -r requirements.txt
-
-# 2. Configure
-python setup/setup_secrets.py  # Store Materials Project API key
+python setup/setup_secrets.py
 export AWS_PROFILE=your-profile-name
-
-# 3. Run
 python run_local.py
 ```
 
-**Local Login**: Username: `demo`, Password: `quantum2025`
-Cognito authentication is only used for AWS Elastic Beanstalk deployment.
+**Login**: Username: `demo`, Password: `quantum2025`
 
-# AWS Deployment
+## AWS Deployment
 
-**Correct Order**: Deploy app first, then add optional features
+**Order**: Deploy app first, then add optional features
 
 ## Phase 1: Setup AWS Resources (10 minutes)
 
@@ -43,13 +51,13 @@ python setup/setup_secrets.py
 ```
 
 ### Step 2: Create IAM Roles
-**Create 2 roles in AWS Console → IAM → Roles:**
+**Create 2 [IAM roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html) in AWS Console → IAM → Roles:**
 
 **A. EC2 Instance Profile Role**
 - Name: `aws-elasticbeanstalk-ec2-role`
 - Trusted entity: **EC2**
-- Policies: `AWSElasticBeanstalkWebTier`, `AWSElasticBeanstalkWorkerTier`, `AWSElasticBeanstalkMulticontainerDocker`, `AmazonBraketFullAccess`
-- Custom policy for Secrets Manager:
+- [AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html): `AWSElasticBeanstalkWebTier`, `AWSElasticBeanstalkWorkerTier`, `AWSElasticBeanstalkMulticontainerDocker`, `AmazonBraketFullAccess`
+- Custom [inline policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html) for Secrets Manager:
 ```json
 {
     "Version": "2012-10-17",
@@ -65,8 +73,8 @@ python setup/setup_secrets.py
 
 **B. Service Role**
 - Name: `aws-elasticbeanstalk-service-role`
-- Trusted entity: **Elastic Beanstalk**
-- Policies: `AWSElasticBeanstalkEnhancedHealth`, `AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy`
+- Trusted entity: **[Elastic Beanstalk](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/concepts-roles-service.html)**
+- AWS managed policies: [`AWSElasticBeanstalkEnhancedHealth`](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/health-enhanced.html), [`AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy`](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environment-platform-update-managed.html)
 
 ## Phase 2: Deploy Application (15 minutes)
 
@@ -154,51 +162,49 @@ python setup/setup_cognito.py
 ```bash
 python deployment/setup_cloudfront.py
 ```
-**Benefits**: Free SSL, global CDN, 15-20 minutes deployment time
+**Benefits**: Free SSL, global CDN, 15-20 minutes deployment time  
+**Access**: CloudFront URL will be displayed in terminal output and available in AWS Console → CloudFront → Distributions
 
-## Security Status
-**✅ All Critical Vulnerabilities Fixed:**
-- Authentication bypass - Resolved with proper auth validation
-- Command injection - Fixed with input validation and subprocess security
-- Secrets exposure - Moved to AWS Secrets Manager
-- Input validation - Comprehensive validation implemented
-- Rate limiting - 5 requests per 60 seconds implemented
-- Security headers - HTTP security headers configured
-- Audit logging - Security event tracking enabled
+## Security Measures Implemented
 
-## Cost Estimation
-- **t3.medium** (minimum): ~$30-35/month
-- **t3.large** (recommended): ~$60-70/month  
-- **t3.xlarge** (heavy usage): ~$120-140/month
-- **CloudFront**: $0/month (free tier)
-- **Cognito**: $0/month (free tier)
+**Authentication & Access Control:**
+- Multi-layer authentication with AWS Cognito integration
+- Secure credential management via AWS Secrets Manager
+- IAM role-based access with least privilege principles
 
+**Application Security:**
+- Comprehensive input validation and sanitization
+- Rate limiting protection (5 requests per 60 seconds)
+- HTTP security headers for XSS and CSRF protection
+- Command injection prevention with secure subprocess handling
 
+**Monitoring & Compliance:**
+- Security event audit logging
+- CloudWatch monitoring integration
+- SSL/TLS encryption via CloudFront
 
-# Troubleshooting
+## Troubleshooting
 
-**Deployment fails:**
-- Check IAM permissions are correctly configured
-- Verify all required files in deployment package
-- Check application logs in EB console
+**Deployment Issues:**
+- Verify IAM roles and permissions are correctly configured
+- Ensure all required files are included in deployment package
+- Review application logs in Elastic Beanstalk console
+- Check environment variables are properly set
 
-**Testing and Quality Assurance:**
-- Current test coverage: 0% (development phase)
-- Recommended tools: pytest, bandit (security), safety (dependencies)
-- Priority testing areas: Authentication, MCP client, agent workflows
+**Model Access Issues:**
+- Verify region settings match model availability
 
-**Models not working:**
-- Ensure Bedrock access enabled in AWS Console
-- Verify correct regions: us-east-1, us-west-2
+**Materials Project Integration:**
+- Ensure API key is correctly stored in AWS Secrets Manager
+- Test network connectivity to Materials Project API
+- Verify MCP server status in application logs
 
-**Materials Project errors:**
-- Verify API key stored in Secrets Manager
-- Check network connectivity
+**Authentication Problems:**
+- For Cognito: Run setup script after successful EB deployment
+- Verify User Pool creation in correct AWS region
+- Check demo credentials if Cognito is not configured
 
-**Cognito issues:**
-- Run setup after successful EB deployment
-- Verify User Pool created in us-east-1
-
-**CloudFront issues:**
-- Wait 15-20 minutes for deployment
-- Test EB URL first, then CloudFront URL
+**CloudFront Deployment:**
+- Allow 15-20 minutes for global distribution
+- Test Elastic Beanstalk URL before CloudFront URL
+- Verify SSL certificate provisioning status
