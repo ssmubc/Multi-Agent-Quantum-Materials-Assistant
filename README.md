@@ -105,7 +105,7 @@ For troubleshooting common issues, see [Troubleshooting Guide](docs/deployment-g
 
 ## Credits
 
-This application was architected and developed by [Sharon Marfatia](https://www.linkedin.com/in/sharon-cs/). Thanks to the UBC Cloud Innovation Centre Technical and Project Management teams for their guidance and support.
+This application was architected and developed by [Sharon Marfatia](https://www.linkedin.com/in/sharon-cs/) with project assistance by Anya Ameen. Thanks to the UBC Cloud Innovation Centre Technical and Project Management teams for their guidance and support.
 
 ## License
 
