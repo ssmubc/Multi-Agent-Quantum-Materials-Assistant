@@ -107,17 +107,17 @@ Adjust model behavior with these parameters:
 ## Backend Data and Logging
 
 ### Materials Project MCP JSON Example Results
-For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle
+For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle:
 ![Alt text](images/materials_project_backend_result.png)
 
-For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties
+For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties:
 ![Alt text](images/materials_project_backend_result2.png) 
 
 ### Strands Agents JSON Results
-For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle
+For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle:
 ![Alt text](images/strands_analysis_result.png)
 
-For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties
+For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties:
 ![Alt text](images/strands_analysis_agentic1.png)
 ![Alt text](images/strands_analysis_agentic2.png)
 
@@ -131,48 +131,55 @@ View Amazon Braket SDK operations and quantum device data:
 - Hardware compatibility information
 
 ### System Logging and Monitoring
-For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle
+For query: Create a moire bilayer structure for graphene with 1.1 degree twist angle:
 ![Alt text](images/activity_log.png)
 
-For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties
+For query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties:
 ![Alt text](images/activity_log2.png)
 
 ## Example Outputs
 
 ### 1. Qiskit Framework Code Generation Examples
-For query: Batch analysis of transition metal dichalcogenides.
+For query: Batch analysis of transition metal dichalcogenides:
 ![Alt text](images/code_gen_ex.png)
 
-For query: Create a 2x2x2 supercell from mp-149 for quantum simulation and generate the corresponding VQE ansatz.
+For query: Create a 2x2x2 supercell from mp-149 for quantum simulation and generate the corresponding VQE ansatz:
 ![Alt text](images/supercell_codegen.png)
-For query: Generate tight-binding Hamiltonian for graphene with realistic DFT parameters.
+
+For query: Generate tight-binding Hamiltonian for graphene with realistic DFT parameters:
 ![Alt text](images/binding_hamiltonian.png)
 
 ### 2. Amazon Braket SDK Code, Visualization, and Device Information Examples
-For query: Generate a 4-qubit GHZ circuit with Braket MCP and show ASCII visualization.
+For query: Generate a 4-qubit GHZ circuit with Braket MCP and show ASCII visualization:
 ![Alt text](images/ascii_visualization.png)
-For query: Generate a Bell state circuit with Braket and explain the entanglement.
+
+For query: Generate a Bell state circuit with Braket and explain the entanglement:
 ![Alt text](images/bell_state_code.png)
-For query: Create a quantum Fourier transform circuit using Braket MCP.
+
+For query: Create a quantum Fourier transform circuit using Braket MCP:
 ![Alt text](images/qft_braket.png)
-![Alt text](images/inverse_qft.png)
-For query: Show me available Amazon Braket devices and their status.
 ![Alt text](images/inverse_qft.png)
 
+For Amazon Braket framework query that asks to show available Amazon Braket devices and their status:
+![Alt text](images/code_device.png)
+![Alt text](images/device_info.png)
+
 ### 3. Explanation and Analysis Examples
-For Qiskit framework query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties.
+For Qiskit framework query that uses the agentic workflow and a specialized agent process: Multi-material comparison of silicon, germanium, and carbon properties:
 ![Alt text](images/theory_gen.png)
-For Qiskit framework query that searches material data: Get detailed information about material mp-149 including its structure and properties.
+
+For Qiskit framework query that searches material data: Get detailed information about material mp-149 including its structure and properties:
 ![Alt text](images/material_info.png)
-For Amazon Braket framework query that generates a Bell state circuit with Braket and explain the entanglement.
+
+For Amazon Braket framework query that generates a Bell state circuit with Braket and explain the entanglement:
 ![Alt text](images/bell_state_explain.png)
+
 Key insights and application explanations:
 ![Alt text](images/insights_applications_braket.png)
+
 ASCII Circuit Diagram and Gate Sequence information:
 ![Alt text](images/ascii_gate_seq.png)
-For Amazon Braket framework query that asks to show available Amazon Braket devices and their status:
-![Alt text](images/qft_braket.png)
-![Alt text](images/device_info.png)
+
 ### 4. POSCAR File Generation Example
 ![Alt text](images/poscar_datastructure.png)
 
