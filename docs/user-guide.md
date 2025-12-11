@@ -177,7 +177,9 @@ For Amazon Braket framework query that generates a Bell state circuit with Brake
 Key insights and application explanations:
 ![Alt text](images/insights_applications_braket.png)
 
+
 ASCII Circuit Diagram and Gate Sequence information:
+
 ![Alt text](images/ascii_gate_seq.png)
 
 ### 4. POSCAR File Generation Example
