@@ -27,7 +27,7 @@ Qiskit Framework: Materials Project MCP server retrieves crystallographic data â
 6. **Streamlit Application** - Main web interface that orchestrates all user interactions and workflows.
 7. **AWS Cognito** - Enterprise authentication service handling user login, signup, and email verification.
 8. **AWS Secrets Manager** - Secure storage for API keys and configuration credentials.
-9. **AWS Bedrock** - Foundation model service providing access to 8 LLM models across us-east-1 and us-west-2 regions.
+9. **AWS Bedrock** - Foundation model service providing access to 8 LLM models.
 10. **Strands Supervisor Agent** - Main coordinator that manages and creates other specialized agents.
 11. **Strands Coordinator Agent** - Orchestrates multi-agent workflows and connects to DFT and Structure agents.
 12. **Strands Agentic Loop** - Iterative processing engine that creates agent instances for complex workflows.

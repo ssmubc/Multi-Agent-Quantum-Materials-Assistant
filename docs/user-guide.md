@@ -3,13 +3,6 @@
 ## Overview
 The Quantum Matter LLM Testing Platform harnesses generative AI on AWS Cloud Infrastructure to enable quantum computing and materials science research through intelligent Large Language Model interactions. The platform supports both **Qiskit framework integration** with Materials Project MCP data and **Amazon Braket SDK** for quantum circuits and device information, providing comprehensive quantum simulations and materials analysis capabilities.
 
-### Key Features
-- **8 Advanced LLM Models** across us-east-1 and us-west-2 regions
-- **Dual Framework Support**: Qiskit integration with Materials Project data + Amazon Braket SDK
-- **Materials Project Integration** with real-time MCP server and auto-recovery
-- **AWS Strands Agentic Workflows** for multi-material analysis and DFT parameters
-- **Enterprise Authentication** with AWS Cognito and email verification
-
 ## Getting Started
 
 ### Accessing the Application
