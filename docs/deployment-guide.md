@@ -70,6 +70,31 @@ python setup/setup_secrets.py
     ]
 }
 ```
+- **Required for Admin Authentication**: Custom inline policy for Cognito admin access:
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cognito-idp:ListUsers",
+                "cognito-idp:AdminDeleteUser",
+                "cognito-idp:CreateGroup",
+                "cognito-idp:AdminAddUserToGroup",
+                "cognito-idp:AdminRemoveUserFromGroup",
+                "cognito-idp:ListGroups",
+                "cognito-idp:ListUsersInGroup",
+                "cognito-idp:AdminListGroupsForUser",
+                "cognito-idp:AdminCreateUser",
+                "cognito-idp:AdminSetUserPassword"
+            ],
+            "Resource": "arn:aws:cognito-idp:*:YOUR_ACCOUNT_ID:userpool/*"
+        }
+    ]
+}
+```
+**Note**: Replace `YOUR_ACCOUNT_ID` with your actual AWS account ID
 
 **B. Service Role**
 - Name: `aws-elasticbeanstalk-service-role`
@@ -152,10 +177,18 @@ DEMO_PASSWORD = quantum2025
 python setup/setup_cognito.py
 ```
 **What this does:**
-- Creates Cognito User Pool and App Client
+- Creates Cognito User Pool and App Client with admin-only signup
 - Automatically sets EB environment variables
 - Configures email verification
 - Takes priority over demo credentials
+- Enables bootstrap admin system for first-time setup
+
+**Admin Authentication Setup:**
+1. **First login**: Use existing account or create an initial account through the Amazon Cognito Console before accessing the bootstrap system
+2. **Bootstrap admin**: Click "Become Admin" button (appears only when no admins exist)
+3. **Sign out and login**: After becoming admin, sign out and log back in to refresh your session
+4. **Admin panel**: Access user management in sidebar after becoming admin
+5. **Create users and other admins**: Only admins can create new accounts with temporary passwords
 
 ### Add CloudFront SSL/CDN (Optional)
 **Run AFTER successful deployment:**
@@ -168,7 +201,7 @@ python deployment/setup_cloudfront.py
 ## Security Measures Implemented
 
 **Authentication & Access Control:**
-- Multi-layer authentication with AWS Cognito integration
+- Multi-layer authentication with Amazon Cognito integration
 - Secure credential management via AWS Secrets Manager
 - IAM role-based access with least privilege principles
 
@@ -203,6 +236,9 @@ python deployment/setup_cloudfront.py
 - For Cognito: Run setup script after successful EB deployment
 - Verify User Pool creation in correct AWS region
 - Check demo credentials if Cognito is not configured
+- **Admin setup issues**: Ensure EC2 role has Cognito permissions (see Step 2A)
+- **Bootstrap admin fails**: Check CloudWatch logs for IAM permission errors
+- **User creation fails**: Verify admin has proper Cognito group membership
 
 **CloudFront Deployment:**
 - Allow 15-20 minutes for global distribution
