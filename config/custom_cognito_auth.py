@@ -157,17 +157,29 @@ class CustomCognitoAuth:
             
             response = self.cognito.initiate_auth(**params)
             
+            # Check if user needs to set permanent password
+            if response.get('ChallengeName') == 'NEW_PASSWORD_REQUIRED':
+                # Store challenge info for password change
+                st.session_state['temp_session'] = response['Session']
+                st.session_state['temp_username'] = email
+                st.session_state['needs_password_change'] = True
+                return True, "temporary_password"
+            
             # Validate and store tokens
             access_token = response['AuthenticationResult']['AccessToken']
             validation_result = self.validate_cognito_token(access_token)
             
             if validation_result.get('valid'):
+                # Get actual Cognito username from token for group membership
+                cognito_username = validation_result['payload'].get('username', email)
+                
                 st.session_state['authenticated'] = True
-                st.session_state['username'] = email
+                st.session_state['username'] = email  # Display email
+                st.session_state['cognito_username'] = cognito_username  # Actual Cognito username for groups
                 st.session_state['auth_method'] = 'custom_cognito'
                 st.session_state['access_token'] = access_token
                 st.session_state['token_validated'] = True
-                logger.info(f"User {email} authenticated with validated token")
+                logger.info(f"User {email} authenticated with validated token (Cognito username: {cognito_username})")
                 return True, "Login successful!"
             else:
                 logger.error(f"Token validation failed for {email}: {validation_result.get('error')}")
@@ -181,6 +193,106 @@ class CustomCognitoAuth:
                 return False, "Please verify your email first. Check your inbox for verification code."
             else:
                 return False, f"Login failed: {e.response['Error']['Message']}"
+        except Exception as e:
+            return False, f"Unexpected error: {str(e)}"
+    
+    def set_permanent_password(self, new_password):
+        """Set permanent password for new user"""
+        try:
+            secret_hash = self._calculate_secret_hash(st.session_state['temp_username'])
+            
+            params = {
+                'ClientId': self.app_client_id,
+                'ChallengeName': 'NEW_PASSWORD_REQUIRED',
+                'Session': st.session_state['temp_session'],
+                'ChallengeResponses': {
+                    'USERNAME': st.session_state['temp_username'],
+                    'NEW_PASSWORD': new_password
+                }
+            }
+            
+            if secret_hash:
+                params['ChallengeResponses']['SECRET_HASH'] = secret_hash
+            
+            response = self.cognito.respond_to_auth_challenge(**params)
+            
+            # Now authenticate normally
+            access_token = response['AuthenticationResult']['AccessToken']
+            validation_result = self.validate_cognito_token(access_token)
+            
+            if validation_result.get('valid'):
+                cognito_username = validation_result['payload'].get('username', st.session_state['temp_username'])
+                
+                st.session_state['authenticated'] = True
+                st.session_state['username'] = st.session_state['temp_username']
+                st.session_state['cognito_username'] = cognito_username
+                st.session_state['auth_method'] = 'custom_cognito'
+                st.session_state['access_token'] = access_token
+                st.session_state['token_validated'] = True
+                
+                # Clean up temporary session data
+                del st.session_state['temp_session']
+                del st.session_state['temp_username']
+                del st.session_state['needs_password_change']
+                
+                return True, "Password set successfully! Welcome to the platform."
+            else:
+                return False, "Authentication failed after password change"
+            
+        except ClientError as e:
+            return False, f"Failed to set password: {e.response['Error']['Message']}"
+        except Exception as e:
+            return False, f"Unexpected error: {str(e)}"
+    
+    def forgot_password(self, email):
+        """Send password reset code"""
+        try:
+            secret_hash = self._calculate_secret_hash(email)
+            
+            params = {
+                'ClientId': self.app_client_id,
+                'Username': email
+            }
+            
+            if secret_hash:
+                params['SecretHash'] = secret_hash
+            
+            self.cognito.forgot_password(**params)
+            return True, "Password reset code sent! Check your email."
+            
+        except ClientError as e:
+            return False, f"Failed to send reset code: {e.response['Error']['Message']}"
+        except Exception as e:
+            return False, f"Unexpected error: {str(e)}"
+    
+    def confirm_forgot_password(self, email, confirmation_code, new_password):
+        """Confirm password reset with new password"""
+        try:
+            secret_hash = self._calculate_secret_hash(email)
+            
+            params = {
+                'ClientId': self.app_client_id,
+                'Username': email,
+                'ConfirmationCode': confirmation_code,
+                'Password': new_password
+            }
+            
+            if secret_hash:
+                params['SecretHash'] = secret_hash
+            
+            self.cognito.confirm_forgot_password(**params)
+            return True, "Password reset successfully! You can now log in with your new password."
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'CodeMismatchException':
+                return False, "Invalid reset code. Please try again."
+            elif error_code == 'ExpiredCodeException':
+                return False, "Reset code expired. Request a new one."
+            elif error_code == 'InvalidPasswordException':
+                return False, "Password must be at least 8 characters with uppercase, lowercase, and number."
+            else:
+                return False, f"Password reset failed: {e.response['Error']['Message']}"
         except Exception as e:
             return False, f"Unexpected error: {str(e)}"
     
@@ -222,6 +334,29 @@ class CustomCognitoAuth:
             st.info("Set COGNITO_POOL_ID, COGNITO_APP_CLIENT_ID, and COGNITO_APP_CLIENT_SECRET environment variables")
             return False
         
+        # Check if user needs to set permanent password
+        if st.session_state.get('needs_password_change', False):
+            st.warning("🔑 **Set Your Permanent Password**")
+            st.info(f"Welcome {st.session_state.get('temp_username')}! Please set your permanent password to continue.")
+            
+            with st.form("set_permanent_password"):
+                new_password = st.text_input("New Password", type="password", 
+                                           help="At least 8 characters with uppercase, lowercase, and number")
+                confirm_password = st.text_input("Confirm Password", type="password")
+                set_password_btn = st.form_submit_button("🔑 Set Password")
+                
+                if set_password_btn and new_password and confirm_password:
+                    if new_password != confirm_password:
+                        st.error("Passwords do not match")
+                    else:
+                        success, message = self.set_permanent_password(new_password)
+                        if success:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+            return False
+        
         # Check if already authenticated
         if st.session_state.get('authenticated', False):
             col1, col2 = st.columns([3, 1])
@@ -235,8 +370,8 @@ class CustomCognitoAuth:
         
         st.markdown("### 🔐 Quantum Matter Platform Authentication")
         
-        # Tab selection
-        tab1, tab2, tab3 = st.tabs(["🔑 Login", "📝 Sign Up", "✉️ Verify Email"])
+        # Tab selection (signup disabled - admin creates users)
+        tab1, tab2 = st.tabs(["🔑 Login", "🔑 Reset Password"])
         
         with tab1:
             st.markdown("**Existing Users:**")
@@ -248,60 +383,66 @@ class CustomCognitoAuth:
                 if login_btn and email and password:
                     success, message = self.login_user(email, password)
                     if success:
-                        st.success(message)
-                        st.rerun()
+                        if message == "temporary_password":
+                            st.info("🔑 **New User Detected**: You're using a temporary password. Please set your permanent password below.")
+                            st.rerun()
+                        else:
+                            st.success(message)
+                            st.rerun()
                     else:
                         st.error(message)
+            
+            # Forgot password section
+            st.markdown("---")
+            st.markdown("**Forgot Password?**")
+            with st.form("forgot_password_form"):
+                forgot_email = st.text_input("Enter your email address", key="forgot_email")
+                forgot_btn = st.form_submit_button("📧 Send Reset Code")
+                
+                if forgot_btn and forgot_email:
+                    success, message = self.forgot_password(forgot_email)
+                    if success:
+                        st.success(message)
+                        st.info("👆 Go to 'Reset Password' tab to enter the reset code")
+                    else:
+                        st.error(message)
+        
+        # Only show new user info if not authenticated
+        if not st.session_state.get('authenticated', False):
+            st.markdown("---")
+            st.markdown("**👥 New Users:**")
+            st.info("🛡️ Self-registration is disabled. Contact your administrator to create an account.")
+            st.markdown("**Admin will:**")
+            st.markdown("• Create your account with your email address")
+            st.markdown("• Send you a temporary password via email")
+            st.markdown("• **Login here with your temporary password** (not on Reset tab)")
+            st.markdown("• You'll be prompted to set a permanent password immediately")
         
         with tab2:
-            st.markdown("**New Users - Create Account:**")
-            with st.form("signup_form"):
-                email = st.text_input("Email Address", key="signup_email")
-                password = st.text_input("Password", type="password", key="signup_password", 
-                                       help="8+ characters, uppercase, lowercase, number")
-                confirm_password = st.text_input("Confirm Password", type="password", key="confirm_password")
-                signup_btn = st.form_submit_button("📝 Create Account")
+            st.markdown("**Reset Password:**")
+            st.info("💡 If you received a password reset code, enter it here with your new password")
+            st.warning("⚠️ **New Users**: Don't use this tab! Login with your temporary password on the Login tab first.")
+            
+            with st.form("reset_password_form"):
+                reset_email = st.text_input("Email Address", key="reset_email")
+                reset_code = st.text_input("Reset Code", key="reset_code", 
+                                          help="Enter the 6-digit code from your password reset email")
+                new_password = st.text_input("New Password", type="password", key="new_password",
+                                           help="At least 8 characters with uppercase, lowercase, and number")
+                confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_password")
                 
-                if signup_btn and email and password:
-                    if password != confirm_password:
-                        st.error("Passwords don't match!")
-                    elif len(password) < 8:
-                        st.error("Password must be at least 8 characters!")
+                reset_confirm_btn = st.form_submit_button("🔑 Set New Password")
+                
+                if reset_confirm_btn and reset_email and reset_code and new_password and confirm_password:
+                    if new_password != confirm_password:
+                        st.error("Passwords do not match")
                     else:
-                        success, message = self.signup_user(email, password)
+                        success, message = self.confirm_forgot_password(reset_email, reset_code, new_password)
                         if success:
                             st.success(message)
-                            st.info("👆 Go to 'Verify Email' tab to enter your verification code")
+                            st.info("👆 Go to 'Login' tab to sign in with your new password")
                         else:
                             st.error(message)
-        
-        with tab3:
-            st.markdown("**Email Verification:**")
-            with st.form("verify_form"):
-                email = st.text_input("Email Address", key="verify_email")
-                code = st.text_input("Verification Code", key="verify_code", 
-                                    help="Check your email for 6-digit code")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    verify_btn = st.form_submit_button("✅ Verify Email")
-                with col2:
-                    resend_btn = st.form_submit_button("📧 Resend Code")
-                
-                if verify_btn and email and code:
-                    success, message = self.confirm_signup(email, code)
-                    if success:
-                        st.success(message)
-                        st.info("👆 Go to 'Login' tab to sign in")
-                    else:
-                        st.error(message)
-                
-                if resend_btn and email:
-                    success, message = self.resend_verification(email)
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
         
         return False
 
