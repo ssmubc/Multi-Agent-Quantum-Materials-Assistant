@@ -97,7 +97,7 @@ You will now see the following page:
 
 Enter a policy name (e.g., MaterialsProjectKey) and click "Create policy."
 
-- **Required for Admin Authentication**: Custom inline policy for Cognito admin access:
+**Required for Admin Authentication**: Custom inline policy for Cognito admin access:
 
 Go back to the Permissions page and select "Add permissions" again and select "Create inline policy."
 
