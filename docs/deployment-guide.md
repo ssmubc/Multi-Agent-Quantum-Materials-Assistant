@@ -58,6 +58,23 @@ python setup/setup_secrets.py
 - Trusted entity: **EC2**
 - [AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html): `AWSElasticBeanstalkWebTier`, `AWSElasticBeanstalkWorkerTier`, `AWSElasticBeanstalkMulticontainerDocker`, `AmazonBraketFullAccess`
 - Custom [inline policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html) for Secrets Manager:
+
+Begin by opening AWS Console → IAM → Roles → aws-elasticbeanstalk-ec2-role
+
+Select "Roles" under "Access management."
+You will see:
+![](images/permission_policies.png)
+In order to add these policies you can select "Add permissions" and then select "Attach Policies".
+
+Now in the search bar enter the folowing policy names and add them.
+- `AWSElasticBeanstalkWebTier`
+- `AWSElasticBeanstalkWorkerTier`
+- `AWSElasticBeanstalkMulticontainerDocker`
+- `AmazonBraketFullAccess`
+
+Then go back to the Permissions page and select "Add permissions" again but this time select "Create inline policy."
+
+Under "Specify permissions" select the "JSON editor" option and enter the following JSON lines:
 ```json
 {
     "Version": "2012-10-17",
@@ -70,7 +87,22 @@ python setup/setup_secrets.py
     ]
 }
 ```
+It should look like this:
+![](images/specify_permission_inline.png)
+
+Then click on the button "Next" on the bottom right corner. 
+
+You will now see the following page:
+![](images/policy_name.png)
+
+Enter a policy name (e.g., MaterialsProjectKey) and click "Create policy."
+
 - **Required for Admin Authentication**: Custom inline policy for Cognito admin access:
+
+Go back to the Permissions page and select "Add permissions" again and select "Create inline policy."
+
+Under "Specify permissions" select the "JSON editor" option and enter the following JSON lines:
+
 ```json
 {
     "Version": "2012-10-17",
@@ -96,10 +128,32 @@ python setup/setup_secrets.py
 ```
 **Note**: Replace `YOUR_ACCOUNT_ID` with your actual AWS account ID
 
+It should look like this:
+![](images/cognito_policy.png)
+
+Then click on the button "Next" on the bottom right corner. 
+
+You will now see the following page:
+![](images/policy_name.png)
+
+Enter a policy name (e.g., CognitoAdminAccess) and click "Create policy."
+
 **B. Service Role**
 - Name: `aws-elasticbeanstalk-service-role`
 - Trusted entity: **[Elastic Beanstalk](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/concepts-roles-service.html)**
 - AWS managed policies: [`AWSElasticBeanstalkEnhancedHealth`](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/health-enhanced.html), [`AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy`](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environment-platform-update-managed.html)
+
+Begin by opening AWS Console → IAM → Roles → 
+aws-elasticbeanstalk-service-role
+
+Select "Roles" under "Access management."
+You will see:
+![](images/service_role_policy.png)
+In order to add these properties you can select "Add permissions" and then select "Attach Policies".
+
+Now in the search bar enter the folowing policy names and add them so it looks like the example image above.
+- `AWSElasticBeanstalkEnhancedHealth`
+- `AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy`
 
 ## Phase 2: Deploy Application (15 minutes)
 
