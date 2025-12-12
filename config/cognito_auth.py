@@ -113,14 +113,13 @@ class QuantumCognitoAuth:
         # Show login form with clear instructions
         st.markdown("### 🔐 AWS Cognito Authentication")
         
-        # Clear signup instructions (always visible)
-        st.markdown("**New Users - Account Creation:**")
-        st.markdown("• Enter your **email address** as username")
-        st.markdown("• Create a **strong password** (8+ characters, uppercase, lowercase, number)")
-        st.markdown("• Click **Login** to create your account")
-        st.markdown("• **Check your email** (including spam folder) for verification code")
-        st.markdown("• Enter the verification code when prompted")
-        st.markdown("• Complete registration and login with your credentials")
+        # Admin-controlled user creation instructions
+        st.markdown("**New Users:**")
+        st.info("🛡️ **Admin-Controlled Access** - Contact your administrator to create an account")
+        st.markdown("**Admin will:**")
+        st.markdown("• Create your account with your email address")
+        st.markdown("• Send you login credentials via email")
+        st.markdown("• You may be prompted to change your password on first login")
         
         st.info("📧 **Email Issues?** Check spam folder or try a different email provider (Gmail, Outlook)")
         st.warning("⚠️ **Not receiving emails?** Contact admin - email verification may need configuration")
