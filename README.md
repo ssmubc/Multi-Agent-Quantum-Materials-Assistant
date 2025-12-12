@@ -36,7 +36,7 @@ For detailed feature documentation, see [User Guide](docs/user-guide.md).
 
 - AWS account with Bedrock access
 - Materials Project API key from [materialsproject.org](https://materialsproject.org/)
-- Python 3.8+ and AWS CLI configured
+- Python 3.12+ and AWS CLI configured
 
 For detailed setup requirements, see [Deployment Guide](docs/deployment-guide.md).
 

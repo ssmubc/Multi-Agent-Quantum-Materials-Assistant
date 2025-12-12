@@ -237,7 +237,7 @@ devices = list_devices()
 - Reinstall dependencies: `pip install --upgrade amazon-braket-sdk`
 
 **Import errors**
-- Check Python version (3.8+ required)
+- Check Python version (3.12+ required)
 - Verify virtual environment activation
 - Check for conflicting package versions
 

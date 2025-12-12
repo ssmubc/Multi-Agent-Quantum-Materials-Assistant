@@ -20,7 +20,7 @@ Before starting, you need an AWS account with proper access:
 3. **Configure SSO**: Run `aws configure sso` or see [AWS SSO configuration guide](https://docs.aws.amazon.com/cli/latest/userguide/sso-configure-profile-token.html)
 
 ### Required Tools
-- **Python 3.8+**: Download from [python.org](https://www.python.org/downloads/)
+- **Python 3.12+**: Download from [python.org](https://www.python.org/downloads/)
 - **Materials Project API Key**: Register at [materialsproject.org](https://materialsproject.org/) for free API access
 
 ## Overview
