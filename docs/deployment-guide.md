@@ -45,12 +45,38 @@ python run_local.py
 
 ## Phase 1: Setup AWS Resources (10 minutes)
 
-### Step 1: Store API Key
+**Note**: Deploy in the `us-east-1` region for best compatibility and full Bedrock model access.
+
+### Step 1: Create VPC (if needed)
+**Skip this step if you already have a VPC**
+
+Setting up a VPC:
+1. **AWS Console → VPC → Create VPC**
+2. **Resources to create**: VPC and more
+3. **Name tag**: quantum-matter
+4. **IPv4 CIDR**: 10.0.0.0/16
+5. **IPv6 CIDR block**: No IPv6 CIDR block
+6. **Tenancy**: Default
+7. **Number of Availability Zones (AZs)**: 2
+8. **Number of public subnets**: 2
+9. **Number of private subnets**: 0
+10. **NAT gateways**: None
+11. **VPC endpoints**: S3 Gateway
+12. **DNS options**: Keep defaults (both enabled)
+13. **VPC encryption control**: None
+14. **Click "Create VPC"**
+
+Here is how the configuration should look like:
+![](images/create_vpc_part1.png)
+![](images/create_vpc_part2.png)
+![](images/create_vpc_part3.png)
+
+### Step 2: Store API Key
 ```bash
 python setup/setup_secrets.py
 ```
 
-### Step 2: Create IAM Roles
+### Step 3: Create IAM Roles
 **Create 2 [IAM roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html) in AWS Console → IAM → Roles:**
 
 **A. EC2 Instance Profile Role**
@@ -200,7 +226,7 @@ python deployment/deploy_fixed_integration.py
 
 9. **Set Up Networking:**
 ![](images/eb-09-create-application.png)
-   - VPC: Default VPC
+   - VPC: Default VPC (or quantum-matter-vpc if created in Step 1)
    - Public IP address: **Activated**
 
 10. **Configure Instance:**
