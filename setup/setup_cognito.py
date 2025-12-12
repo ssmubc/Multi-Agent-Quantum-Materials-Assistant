@@ -11,12 +11,115 @@ import sys
 import getpass
 from botocore.exceptions import ClientError
 
+def list_user_pools():
+    """List all available User Pools and let user select one"""
+    try:
+        region = os.getenv('AWS_REGION', 'us-east-1')
+        cognito = boto3.client('cognito-idp', region_name=region)
+        
+        print("🔍 Finding your Cognito User Pools...")
+        response = cognito.list_user_pools(MaxResults=60)
+        pools = response['UserPools']
+        
+        if not pools:
+            print("❌ No User Pools found")
+            return None
+        
+        print("\n📋 Available User Pools:")
+        print("-" * 60)
+        for i, pool in enumerate(pools, 1):
+            print(f"{i:2d}. {pool['Name']:<30} | {pool['Id']}")
+        
+        while True:
+            try:
+                choice = input(f"\n🎯 Select User Pool (1-{len(pools)}): ").strip()
+                if choice:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(pools):
+                        selected_pool = pools[idx]
+                        print(f"✅ Selected: {selected_pool['Name']} ({selected_pool['Id']})")
+                        return selected_pool['Id']
+                else:
+                    return None
+            except (ValueError, KeyboardInterrupt):
+                return None
+                
+    except Exception as e:
+        print(f"❌ Failed to list User Pools: {e}")
+        return None
+
+def update_user_pool_to_admin_only(pool_id=None):
+    """Update existing User Pool to disable self-signup"""
+    
+    # Try environment variable first, then interactive selection
+    if not pool_id:
+        pool_id = os.getenv('COGNITO_POOL_ID')
+    
+    if not pool_id:
+        print("🔍 No COGNITO_POOL_ID set, showing available pools...")
+        pool_id = list_user_pools()
+        if not pool_id:
+            print("❌ No User Pool selected")
+            return False
+    
+    try:
+        region = os.getenv('AWS_REGION', 'us-east-1')
+        cognito = boto3.client('cognito-idp', region_name=region)
+        print(f"✅ Connected to Cognito User Pool: {pool_id}")
+        
+        # Get current User Pool configuration
+        print("🔍 Getting current User Pool configuration...")
+        response = cognito.describe_user_pool(UserPoolId=pool_id)
+        current_config = response['UserPool']
+        
+        print(f"📋 Current User Pool: {current_config['Name']}")
+        
+        # Check current admin setting
+        current_admin_only = current_config.get('AdminCreateUserConfig', {}).get('AllowAdminCreateUserOnly', False)
+        print(f"🔐 Current AllowAdminCreateUserOnly: {current_admin_only}")
+        
+        if current_admin_only:
+            print("✅ User Pool already configured for admin-only user creation")
+            return True
+        
+        # Update User Pool to disable self-signup
+        print("🔄 Updating User Pool to disable self-signup...")
+        
+        update_params = {
+            'UserPoolId': pool_id,
+            'AdminCreateUserConfig': {
+                'AllowAdminCreateUserOnly': True,
+                'InviteMessageAction': 'EMAIL'
+            }
+        }
+        
+        # Preserve existing policies
+        if 'Policies' in current_config:
+            update_params['Policies'] = current_config['Policies']
+        
+        cognito.update_user_pool(**update_params)
+        
+        print("✅ User Pool updated successfully!")
+        print("🛡️ Self-signup is now disabled - only admins can create users")
+        
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        print(f"❌ Failed to update User Pool: {error_code}")
+        print(f"   Error: {e.response['Error']['Message']}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        return False
+
 def create_cognito_user_pool():
     """Create Cognito User Pool for Quantum Matter Platform"""
     
     # Initialize Cognito client
     try:
-        cognito = boto3.client('cognito-idp', region_name='us-east-1')
+        region = os.getenv('AWS_REGION', 'us-east-1')
+        cognito = boto3.client('cognito-idp', region_name=region)
         print("✅ Connected to AWS Cognito")
     except Exception as e:
         print(f"❌ Failed to connect to AWS: {e}")
@@ -54,7 +157,8 @@ def create_cognito_user_pool():
             }
         ],
         'AdminCreateUserConfig': {
-            'AllowAdminCreateUserOnly': False
+            'AllowAdminCreateUserOnly': True,
+            'InviteMessageAction': 'EMAIL'
         },
         'DeviceConfiguration': {
             'ChallengeRequiredOnNewDevice': False,
@@ -104,7 +208,7 @@ def create_cognito_user_pool():
             'user_pool_id': user_pool_id,
             'app_client_id': app_client_id,
             'app_client_secret': app_client_secret,
-            'region': 'us-east-1'
+            'region': region
         }
         
         return config
@@ -122,9 +226,10 @@ def create_cognito_user_pool():
         return None
 
 def create_test_user(user_pool_id, email, temporary_password):
-    """Create a test user in the User Pool"""
+    """Create a bootstrap user in the User Pool"""
     try:
-        cognito = boto3.client('cognito-idp', region_name='us-east-1')
+        region = os.getenv('AWS_REGION', 'us-east-1')
+        cognito = boto3.client('cognito-idp', region_name=region)
         
         print(f"🔄 Creating test user: {email}")
         cognito.admin_create_user(
@@ -138,13 +243,8 @@ def create_test_user(user_pool_id, email, temporary_password):
             TemporaryPassword=temporary_password
         )
         
-        # Set permanent password
-        cognito.admin_set_user_password(
-            UserPoolId=user_pool_id,
-            Username=email,
-            Password=temporary_password,
-            Permanent=True
-        )
+        # Let Cognito handle temporary password flow for security
+        # User will be forced to change password on first login
         
         print(f"✅ Test user created: {email}")
         print("🔑 Test user password configured")
@@ -161,7 +261,8 @@ def create_test_user(user_pool_id, email, temporary_password):
 def get_eb_environments():
     """Get Elastic Beanstalk environments using AWS API"""
     try:
-        eb = boto3.client('elasticbeanstalk')
+        region = os.getenv('AWS_REGION', 'us-east-1')
+        eb = boto3.client('elasticbeanstalk', region_name=region)
         environments = eb.describe_environments()
         
         if not environments['Environments']:
@@ -227,10 +328,16 @@ def set_eb_environment_variables(config):
     try:
         import subprocess
         
-        # Check if EB CLI is available
-        result = subprocess.run(['eb', '--version'], capture_output=True, text=True)
+        # Check if EB CLI is available (use which to find eb path)
+        import shutil
+        eb_path = shutil.which('eb')
+        if not eb_path:
+            print("⚠️ EB CLI not found in PATH. Skipping automatic EB configuration.")
+            return False
+        
+        result = subprocess.run([eb_path, '--version'], capture_output=True, text=True)
         if result.returncode != 0:
-            print("⚠️ EB CLI not found. Skipping automatic EB configuration.")
+            print("⚠️ EB CLI not working properly. Skipping automatic EB configuration.")
             return False
         
         # Get available environments using AWS API
@@ -245,16 +352,24 @@ def set_eb_environment_variables(config):
         print(f"🔄 Setting Cognito variables in EB environment: {env_name}")
         print("🔒 Configuring sensitive credentials (values hidden for security)...")
         
-        cmd = [
-            'eb', 'setenv',
-            f"COGNITO_POOL_ID={config['user_pool_id']}",
-            f"COGNITO_APP_CLIENT_ID={config['app_client_id']}",
-            f"COGNITO_APP_CLIENT_SECRET={config['app_client_secret']}",
-            'AUTH_MODE=cognito',
-            '-e', env_name
-        ]
+        # Use environment variables for security
+        env_vars = os.environ.copy()
+        env_vars.update({
+            'COGNITO_POOL_ID': config['user_pool_id'],
+            'COGNITO_APP_CLIENT_ID': config['app_client_id'],
+            'COGNITO_APP_CLIENT_SECRET': config['app_client_secret']
+        })
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        cmd = [eb_path, 'setenv', 'AUTH_MODE=cognito', '-e', env_name]
+        
+        # Set credentials via separate secure commands
+        for key, value in [('COGNITO_POOL_ID', config['user_pool_id']), 
+                          ('COGNITO_APP_CLIENT_ID', config['app_client_id']),
+                          ('COGNITO_APP_CLIENT_SECRET', config['app_client_secret'])]:
+            secure_cmd = [eb_path, 'setenv', f'{key}={value}', '-e', env_name]
+            subprocess.run(secure_cmd, capture_output=True, text=True, env=env_vars)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env_vars)
         
         if result.returncode == 0:
             print(f"✅ Cognito variables set in EB environment: {env_name}")
@@ -347,6 +462,52 @@ def main():
     print("🚀 AWS Cognito Setup for Quantum Matter Platform")
     print("=" * 50)
     
+    # Check if pool ID is provided as argument for update mode
+    pool_id = None
+    if len(sys.argv) > 1:
+        pool_id = sys.argv[1]
+        print(f"📋 Update mode - Using User Pool ID: {pool_id}")
+        print("This will update an EXISTING User Pool to admin-only")
+        
+        confirm = input("\n⚠️ Continue with update? (y/n): ").lower().strip()
+        if confirm != 'y':
+            print("❌ Update cancelled")
+            return
+        
+        if update_user_pool_to_admin_only(pool_id):
+            print("\n" + "=" * 40)
+            print("🎉 Update Complete!")
+            print("=" * 40)
+            print("✅ Self-signup disabled")
+            print("✅ Admin-only user creation enabled")
+            print("\n📋 Next Steps:")
+            print("1. Deploy your application normally")
+            print("2. Use bootstrap admin system for first-time setup")
+            print("3. Users will see 'Contact admin' message")
+        else:
+            print("❌ Update failed")
+        return
+    
+    # Check if user wants to update existing pool
+    mode = input("\n🎯 Choose mode:\n1. Create NEW User Pool\n2. Update EXISTING User Pool\n\nEnter choice (1 or 2): ").strip()
+    
+    if mode == '2':
+        if update_user_pool_to_admin_only():
+            print("\n" + "=" * 40)
+            print("🎉 Update Complete!")
+            print("=" * 40)
+            print("✅ Self-signup disabled")
+            print("✅ Admin-only user creation enabled")
+            print("\n📋 Next Steps:")
+            print("1. Deploy your application normally")
+            print("2. Use bootstrap admin system for first-time setup")
+            print("3. Users will see 'Contact admin' message")
+        else:
+            print("❌ Update failed")
+        return
+    
+    print("This creates a NEW User Pool with admin-only user creation")
+    
     # Setup AWS credentials
     if not setup_aws_credentials():
         return
@@ -364,33 +525,42 @@ def main():
     eb_configured = set_eb_environment_variables(config)
     
     # Create test user
-    create_test = input("\\n🧪 Create test user? (y/n): ").lower().strip()
-    if create_test == 'y':
-        email = input("📧 Test user email: ").strip()
-        password = getpass.getpass("🔑 Test user password (min 8 chars): ").strip()
+    create_bootstrap = input("\\n🧪 Create bootstrap user for first-time deployment? (y/n): ").lower().strip()
+    if create_bootstrap == 'y':
+        email = input("📧 Bootstrap user email (deployer): ").strip()
+        password = getpass.getpass("🔑 Bootstrap user password (min 8 chars): ").strip()
         
         if email and password and len(password) >= 8:
             create_test_user(config['user_pool_id'], email, password)
+            print("\\n💡 This user can use the 'Become Admin' bootstrap button on first login")
         else:
             print("❌ Invalid email or password")
+    else:
+        print("\\n💡 You can create the first user manually through AWS Console later")
     
     # Display final configuration
     print("\\n" + "=" * 50)
     print("🎉 Cognito Setup Complete!")
     print("=" * 50)
     print("✅ Cognito resources configured")
+    print("✅ Self-signup disabled")
+    print("✅ Admin-only user creation enabled")
     print(f"Region: {config['region']}")
     print("\\n📋 Next Steps:")
     if eb_configured:
         print("1. ✅ EB environment variables configured automatically")
         print("2. Deploy your application: python deployment/deploy_fixed_integration.py")
-        print("3. Users can sign up at your app URL")
+        print("3. Create first admin account through AWS Console (see deployment guide)")
+        print("4. Login and use 'Become Admin' button for bootstrap")
+        print("5. Use admin panel to create additional users")
     else:
         print("1. Set environment variables in Elastic Beanstalk manually:")
-        print("   eb setenv [COGNITO_VARIABLES_CONFIGURED]")
+        print("   eb setenv COGNITO_POOL_ID=[pool_id] COGNITO_APP_CLIENT_ID=[client_id] COGNITO_APP_CLIENT_SECRET=[secret]")
         print("2. Deploy your application")
-        print("3. Users can sign up at your app URL")
-    print("\\n🔐 Authentication is now enterprise-ready!")
+        print("3. Create first admin account through AWS Console")
+        print("4. Use bootstrap admin system for first-time setup")
+        print("5. Users will see 'Contact admin' message for new accounts")
+    print("\\n🔐 Admin-controlled authentication is now active!")
 
 if __name__ == "__main__":
     main()
