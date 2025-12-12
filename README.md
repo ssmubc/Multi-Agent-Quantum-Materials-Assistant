@@ -1,5 +1,4 @@
 # Quantum Materials Code Generation and Simulation
-### AWS Bedrock, Amazon Braket, AWS Strands Agents & Model Context Protocol
 
 This project harnesses generative AI on AWS Cloud Infrastructure to enable quantum computing and materials science research through intelligent Large Language Model interactions. The platform supports both **Qiskit framework integration** with Materials Project MCP data and **Amazon Braket SDK** for quantum circuits and device information, providing comprehensive quantum simulations and materials analysis capabilities.
 
@@ -71,7 +70,7 @@ Create a quantum simulation for graphene using Materials Project data
 ├── .ebextensions/          # AWS Elastic Beanstalk configuration files
 ├── .streamlit/             # Streamlit configuration
 ├── agents/                 # Strands agentic workflow implementations
-├── BraketMCP/             # Amazon Braket MCP server implementation
+├── BraketMCP/              # Amazon Braket MCP server implementation
 ├── config/                 # Application configuration and authentication
 ├── deployment/             # AWS deployment scripts and CloudFront setup
 ├── docs/                   # Complete documentation and guides
@@ -79,10 +78,10 @@ Create a quantum simulation for graphene using Materials Project data
 ├── models/                 # All 8 LLM model implementations with streaming
 ├── setup/                  # Setup utilities for AWS services and secrets
 ├── utils/                  # Core utilities for MCP, Braket, AWS integration
-├── app.py                 # Main Streamlit application
-├── demo_mode.py           # Demo authentication fallback
-├── run_local.py           # Local development runner
-└── requirements.txt       # Python dependencies
+├── app.py                  # Main Streamlit application
+├── demo_mode.py            # Demo authentication fallback
+├── run_local.py            # Local development runner
+└── requirements.txt        # Python dependencies
 ```
 
 1. `/.ebextensions`: Contains AWS Elastic Beanstalk configuration files for environment setup, security headers, Cognito authentication, and MCP server installation
