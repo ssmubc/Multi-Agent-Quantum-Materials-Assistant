@@ -416,12 +416,16 @@ def main():
     # Check authentication with audit logging
     from utils.audit_logger import audit_authentication
     auth_handler = get_auth_handler()
-    if not auth_handler.render_auth_ui():
-        audit_authentication('login_required', 'anonymous', 'blocked')
-        return
-    else:
-        user = st.session_state.get('username', 'authenticated_user')
-        audit_authentication('session_validated', user, 'success')
+    
+    # Only render auth UI if not already authenticated
+    if not st.session_state.get('authenticated', False):
+        if not auth_handler.render_auth_ui():
+            audit_authentication('login_required', 'anonymous', 'blocked')
+            return
+    
+    # Validate existing authentication
+    user = st.session_state.get('username', 'authenticated_user')
+    audit_authentication('session_validated', user, 'success')
     
     # Setup logging display
     setup_logging_display()
@@ -434,6 +438,34 @@ def main():
     
     # Sidebar configuration
     st.sidebar.title("🔧 Configuration")
+    
+    # Bootstrap Admin System (first-time setup)
+    from config.bootstrap_admin import get_bootstrap_admin
+    from config.admin_auth import get_admin_auth
+    
+    bootstrap_admin = get_bootstrap_admin()
+    admin_auth = get_admin_auth()
+    current_user = st.session_state.get('username')
+    
+    # Check if bootstrap is needed (first-time setup)
+    if current_user and bootstrap_admin.render_bootstrap_ui(current_user):
+        return  # Show bootstrap UI and exit
+    
+    # Admin Panel (only for admin users)
+    cognito_username = st.session_state.get('cognito_username', current_user)
+    if current_user and admin_auth.is_user_admin(cognito_username):
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("👑 Admin Panel")
+        if st.sidebar.button("🛡️ Manage Users", help="Create and manage platform users"):
+            st.session_state['show_admin_panel'] = True
+    
+    # Show admin panel if requested
+    if st.session_state.get('show_admin_panel', False):
+        admin_auth.render_admin_panel()
+        if st.button("← Back to Main App"):
+            st.session_state['show_admin_panel'] = False
+            st.rerun()
+        return  # Don't show main app when admin panel is active
     
     # AWS Credentials Check
     st.sidebar.subheader("☁️ AWS Configuration")
