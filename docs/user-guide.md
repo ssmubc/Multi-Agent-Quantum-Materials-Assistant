@@ -3,28 +3,89 @@
 ## Overview
 The Quantum Matter LLM Testing Platform harnesses generative AI on AWS Cloud Infrastructure to enable quantum computing and materials science research through intelligent Large Language Model interactions. The platform supports both **Qiskit framework integration** with Materials Project MCP data and **Amazon Braket SDK** for quantum circuits and device information, providing comprehensive quantum simulations and materials analysis capabilities.
 
-## Getting Started
+## Admin View
+
+### First-Time Deployer Setup (AWS Console)
+![Alt text](images/create_first_user.png)
+For first-time deployment, the deployer must create their initial account through the AWS Cognito Console before accessing the bootstrap system. In the AWS Console:
+
+**Required Settings:**
+- **Send an email invitation**: ✅ Selected
+- **Email address**: Enter your email address
+- **Mark email address as verified**: ✅ Checked (to skip email verification)
+- **Temporary password**: Choose either:
+  - **"Generate a password"** (recommended) - AWS creates and emails a secure temporary password
+  - **"Set a password"** - You create a custom temporary password that gets emailed to the user
+
+This creates your initial account that you will use to login and access the "Become Admin" bootstrap process.
+
+**Temporary Password Email**
+![Alt text](images/temp_password_email.png)
+When administrators create new user accounts, AWS Cognito automatically sends a temporary password email with login instructions.
+
+**Login Page**
+![Alt text](images/login_page.png)
+Users can sign in with their email and password through the secure AWS Cognito authentication system. New users receiving temporary passwords should enter them here along with their email address.
+
+**Set Permanent Password**
+![Alt text](images/set_perminant_password.png)
+New users must set their permanent password on first login after receiving their temporary password.
+
+### Admin Privilege Access
+![Alt text](images/admin_privilage_enable.png)
+Administrators have access to user management capabilities through the admin panel interface. For first-time deployment, a "Become Admin" button appears when no admin group exists - clicking this button creates the admin user group and grants the deployer administrative privileges.
+
+**Important for First Deployer:** The deployer must already have a confirmed Cognito account (created before enabling admin-only mode or manually through AWS Console) to access the bootstrap system. Self-registration is disabled from the start.
+
+### Verify Cognito Admin Access
+![Alt text](images/verify_cognito_admin_access.png)
+The system verifies administrator privileges through AWS Cognito Groups before granting access to admin functions.
+
+### Admin Panel - User Management
+![Alt text](images/manage_users_admin_panel.png)
+After logging in, administrators can access the Admin Panel from the Configuration sidebar (only visible to admins). Click "Manage Users" to add users, manage existing users, and view admin roles.
+
+### Admin Panel - Create User
+![Alt text](images/admin_panel_create_user.png)
+Administrators can create new user accounts by entering the user's email address. AWS Cognito automatically generates and emails a temporary password. Administrators can check "Grant Admin Privileges" to make the new user an admin immediately.
+
+### Admin Panel - Manage Users
+![Alt text](images/admin_panel_manage_users.png)
+Administrators can view all users, their roles, and creation dates. For non-admin users, "Make Admin" and "Delete" buttons are available for role management and account removal.
+
+### Admin Panel - Admin Roles
+![Alt text](images/admin_panel_admin_roles.png)
+View and manage administrator roles within the system, showing which users have administrative privileges.
+
+## User View
 
 ### Accessing the Application
 
+**Temporary Password Email**
+![Alt text](images/temp_password_email.png)
+When administrators enter an email address within the "Create User" tab of the "Admin Panel" page, AWS Cognito automatically sends a temporary password to that email with login instructions.
+
 **Login Page**
-![Alt text](images/Streamlit_login.png)
-Existing users can sign in with their email and password through the secure AWS Cognito authentication system.
+![Alt text](images/login_page.png)
+Users can sign in with their email and password through the secure AWS Cognito authentication system. Self-registration is disabled - only administrators can create user accounts. New users receiving temporary passwords should enter them here along with their email address.
 
-**Sign Up Page**
-![Alt text](images/Streamlit_signin.png)
-New users can create an account by providing their email, password, and confirming their password. 
+**Set Permanent Password**
+![Alt text](images/set_perminant_password.png)
+New users must set their permanent password on first login after receiving their temporary password.
 
-*Password requirements:* minimum 8 characters with at least one uppercase letter, one lowercase letter, and one number.
+**Forgot Password**
+![Alt text](images/forgot_password.png)
+Existing users can reset their passwords using the self-service password reset functionality. Enter your email to receive a password reset code.
 
-**Email Verification Page**
-![Alt text](images/Streamlit_verifyemail.png)
-After signing up, users must verify their email address by entering the verification code sent to their registered email.
-![Alt text](images/Streamlit_email_code.png)
+**Reset Password Page**
+![Alt text](images/reset_password_page.png)
+Enter your email, the password reset code, and your new password.
 
 **Main Application Interface**
 ![Alt text](images/main_page.png)
 Once authenticated, users gain access to 8 different LLM models optimized for quantum computing and materials science queries, distributed across AWS regions for optimal performance.
+
+
 
 ## Main Interface Components
 
