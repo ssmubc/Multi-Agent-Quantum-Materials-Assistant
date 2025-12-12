@@ -28,7 +28,7 @@ The following architecture diagram illustrates the various AWS components utiliz
 - **Quantum Computing Frameworks**: Qiskit integration with Materials Project data + Amazon Braket SDK for quantum circuits and device information
 - **Materials Project Integration** with real-time MCP server and auto-recovery
 - **Strands Agentic Workflows** for multi-material analysis and DFT parameters
-- **Enterprise Authentication** with AWS Cognito and email verification
+- **Enterprise Authentication** with Amazon Cognito and admin-controlled user creation
 - **Global CDN** with CloudFront SSL and enterprise security
 
 For detailed feature documentation, see [User Guide](docs/user-guide.md).
