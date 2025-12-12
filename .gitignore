@@ -134,7 +134,6 @@ enhanced_mcp_materials/server_*
 enhanced_mcp_materials/structure_helper.py
 
 # Utils development files
-utils/debug_logger.py
 utils/enhanced_*
 utils/local_*
 utils/simple_*
