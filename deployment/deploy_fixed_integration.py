@@ -267,43 +267,18 @@ def main():
         print("Failed to create deployment package")
         sys.exit(1)
     
-    # Ask user if they want to deploy
+    # Deployment package complete
     print("\n" + "=" * 60)
-    print("    READY FOR DEPLOYMENT")
+    print("    DEPLOYMENT PACKAGE READY")
     print("=" * 60)
-    deploy = input("Deploy to Elastic Beanstalk now? (y/N): ").lower().strip()
-    
-    if deploy == 'y':
-        if deploy_to_eb():
-            print("\n" + "=" * 70)
-            print("    DEPLOYMENT COMPLETED SUCCESSFULLY!")
-            print("=" * 70)
-            print("\nWhat was deployed:")
-            print("✓ AWS Cognito Enterprise Authentication")
-            print("✓ Email Verification with Custom Messages")
-            print("✓ Strands-MCP Integration with Proper Tool Calls")
-            print("✓ Braket MCP Installation with Fallback Handling")
-            print("✓ Enhanced Error Handling and Logging")
-            print("✓ CloudFront SSL and Global CDN")
-            print("✓ 18 Security Vulnerabilities Fixed")
-            print("✓ Rate Limiting and Audit Logging")
-            print("✓ Code Security Validation")
-            print("✓ Production-Ready Security Headers")
-            
-            print("\nTest Your Deployment:")
-            print("1. Visit your CloudFront URL")
-            print("2. Try signing up with a real email address")
-            print("3. Check email for verification code")
-            print("4. Test quantum computing features")
-            print("5. Verify Materials Project integration")
-            print("=" * 70)
-        else:
-            print("❌ Deployment failed")
-            sys.exit(1)
-    else:
-        print("📦 Deployment package ready. Deploy manually with:")
-        print("  eb deploy [environment-name]")
-        print("  Example: eb deploy quantum-matter-mcp-cloudfront")
+    print("📦 Deployment package created successfully!")
+    print("\n📋 Next Steps:")
+    print("1. Upload quantum_matter_app_fixed.zip to AWS Elastic Beanstalk")
+    print("2. Create new environment or update existing one")
+    print("3. Run 'python setup/setup_cognito.py' for enterprise auth (optional)")
+    print("4. Run 'python deployment/setup_cloudfront.py' for SSL/CDN (optional)")
+    print("\n💡 Manual deployment gives you full control over the process")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
