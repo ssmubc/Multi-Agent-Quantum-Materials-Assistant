@@ -155,17 +155,22 @@ python deployment/deploy_fixed_integration.py
     - Root volume: **20GB**
     - Instance types: **t3.medium** (minimum), **t3.large** (recommended), **t3.xlarge** (heavy usage)
 
-11. **Environment variables:**
-```
-AWS_DEFAULT_REGION = us-east-1
-STREAMLIT_SERVER_HEADLESS = true
-STREAMLIT_SERVER_ADDRESS = 0.0.0.0
-STREAMLIT_SERVER_PORT = 8501
-MCP_SERVER_ENABLED = true
-DEMO_USERNAME = demo
-DEMO_PASSWORD = quantum2025
-```
-**Note**: Demo credentials provide fallback authentication if Cognito is not configured
+11. **On the Configure updates, monitoring, and logging page (Step 5 - optional) set these under Environment variables/Enviornment properties:**
+
+Leave the Monitoring, Updates, and Log sections unchanged.
+Provide the following under the Environment variables/Enviornment properties section:
+
+| Source | Key | Value |
+|--------|-----|-------|
+| Plain text | AWS_DEFAULT_REGION | us-east-1 |
+| Plain text | STREAMLIT_SERVER_HEADLESS | true |
+| Plain text | STREAMLIT_SERVER_ADDRESS | 0.0.0.0 |
+| Plain text | STREAMLIT_SERVER_PORT | 8501 |
+| Plain text | MCP_SERVER_ENABLED | true |
+| Plain text | DEMO_USERNAME | demo |
+| Plain text | DEMO_PASSWORD | quantum2025 |
+
+**Note**: Demo credentials provide fallback authentication if Cognito is not configured.
 
 **✅ Success**: App accessible at EB URL (5-10 minutes)
 
