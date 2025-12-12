@@ -43,6 +43,8 @@ The system verifies administrator privileges through AWS Cognito Groups before g
 
 ### Admin Panel - User Management
 ![Alt text](images/manage_users_admin_panel.png)
+
+
 After logging in, administrators can access the Admin Panel from the Configuration sidebar (only visible to admins). Click "Manage Users" to add users, manage existing users, and view admin roles.
 
 ### Admin Panel - Create User
