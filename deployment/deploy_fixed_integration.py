@@ -110,6 +110,8 @@ def create_deployment_package():
         "config/app_config.py",  # Centralized configuration
         "config/cognito_auth.py",  # New Cognito auth
         "config/custom_cognito_auth.py",  # Custom Cognito implementation
+        "config/admin_auth.py",  # Role-based admin system
+        "config/bootstrap_admin.py",  # First-time admin setup
         "utils/mcp_tools_wrapper.py",
         "utils/audit_logger.py",  # Security audit logging
         "utils/code_security.py",  # Code security validation
