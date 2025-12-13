@@ -88,8 +88,7 @@ def update_user_pool_to_admin_only(pool_id=None):
         update_params = {
             'UserPoolId': pool_id,
             'AdminCreateUserConfig': {
-                'AllowAdminCreateUserOnly': True,
-                'InviteMessageAction': 'EMAIL'
+                'AllowAdminCreateUserOnly': True
             }
         }
         
@@ -157,8 +156,7 @@ def create_cognito_user_pool():
             }
         ],
         'AdminCreateUserConfig': {
-            'AllowAdminCreateUserOnly': True,
-            'InviteMessageAction': 'EMAIL'
+            'AllowAdminCreateUserOnly': True
         },
         'DeviceConfiguration': {
             'ChallengeRequiredOnNewDevice': False,
