@@ -82,7 +82,7 @@ python setup/setup_secrets.py
 **A. EC2 Instance Profile Role**
 - Name: `aws-elasticbeanstalk-ec2-role`
 - Trusted entity: **EC2**
-- [AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html): `AWSElasticBeanstalkWebTier`, `AWSElasticBeanstalkWorkerTier`, `AWSElasticBeanstalkMulticontainerDocker`, `AmazonBraketFullAccess`
+- [AWS managed policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html): `AWSElasticBeanstalkWebTier`, `AWSElasticBeanstalkWorkerTier`, `AWSElasticBeanstalkMulticontainerDocker`, `AmazonBraketFullAccess`, `AmazonBedrockFullAccess`
 - Custom [inline policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html) for Secrets Manager:
 
 Begin by opening AWS Console → IAM → Roles → aws-elasticbeanstalk-ec2-role
@@ -97,6 +97,7 @@ Now in the search bar enter the folowing policy names and add them.
 - `AWSElasticBeanstalkWorkerTier`
 - `AWSElasticBeanstalkMulticontainerDocker`
 - `AmazonBraketFullAccess`
+- `AmazonBedrockFullAccess`
 
 Then go back to the Permissions page and select "Add permissions" again but this time select "Create inline policy."
 
@@ -247,12 +248,18 @@ Provide the following under the Environment variables/Enviornment properties sec
 | Plain text | STREAMLIT_SERVER_ADDRESS | 0.0.0.0 |
 | Plain text | STREAMLIT_SERVER_PORT | 8501 |
 | Plain text | MCP_SERVER_ENABLED | true |
+| Plain text | AUTH_MODE | demo |
 | Plain text | DEMO_USERNAME | demo |
 | Plain text | DEMO_PASSWORD | quantum2025 |
 
 **Note**: Demo credentials provide fallback authentication if Cognito is not configured.
 
 **✅ Success**: App accessible at EB URL (5-10 minutes)
+
+**🔑 Default Login Credentials:**
+If you do not set up Cognito authentication (Phase 3), use these demo credentials:
+- **Username**: demo
+- **Password**: quantum2025
 
 ## Phase 3: Optional Enhancements
 
