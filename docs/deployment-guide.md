@@ -28,12 +28,26 @@ Before starting, you need an AWS account with proper access:
 **AWS Deployment**: Deploy with enterprise authentication, SSL, and global CDN
 
 ## Local Development (Optional)
+
+**Required for both Local and AWS deployment:**
 ```bash
+# Clone and setup
 git clone <repository-url>
 cd Quantum_Matter_Streamlit_App
 pip install -r requirements.txt
-python setup/setup_secrets.py
+
+# Set AWS profile FIRST (required for setup scripts)
+# Linux/Mac:
 export AWS_PROFILE=your-profile-name
+# Windows PowerShell:
+$env:AWS_PROFILE="your-profile-name"
+
+# Setup secrets (uses AWS credentials)
+python -m setup.setup_secrets
+```
+
+**Local testing only:**
+```bash
 python run_local.py
 ```
 
@@ -71,9 +85,22 @@ Here is how the configuration should look like:
 ![](images/create_vpc_part2.png)
 ![](images/create_vpc_part3.png)
 
-### Step 2: Store API Key
+### Step 2: Configure Secrets
+**If you skipped Local Development section, run these commands:**
 ```bash
-python setup/setup_secrets.py
+# Clone and setup (if not done already)
+git clone <repository-url>
+cd Quantum_Matter_Streamlit_App
+pip install -r requirements.txt
+
+# Set AWS profile FIRST (required for setup scripts)
+# Linux/Mac:
+export AWS_PROFILE=your-profile-name
+# Windows PowerShell:
+$env:AWS_PROFILE="your-profile-name"
+
+# Setup secrets (uses AWS credentials)
+python -m setup.setup_secrets
 ```
 
 ### Step 3: Create IAM Roles
@@ -186,7 +213,7 @@ Now in the search bar enter the folowing policy names and add them so it looks l
 
 ### Step 1: Create Deployment Package
 ```bash
-python deployment/deploy_fixed_integration.py
+python -m deployment.deploy_fixed_integration
 ```
 
 ### Step 2: Create Elastic Beanstalk Environment
@@ -266,7 +293,7 @@ If you do not set up Cognito authentication (Phase 3), use these demo credential
 ### Add Cognito Authentication (Optional)
 **Run AFTER successful deployment:**
 ```bash
-python setup/setup_cognito.py
+python -m setup.setup_cognito
 ```
 **What this does:**
 - Creates Cognito User Pool and App Client with admin-only signup
@@ -285,7 +312,7 @@ python setup/setup_cognito.py
 ### Add CloudFront SSL/CDN (Optional)
 **Run AFTER successful deployment:**
 ```bash
-python deployment/setup_cloudfront.py
+python -m deployment.setup_cloudfront
 ```
 **Benefits**: Free SSL, global CDN, 15-20 minutes deployment time  
 **Access**: CloudFront URL will be displayed in terminal output and available in AWS Console → CloudFront → Distributions
