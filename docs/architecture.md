@@ -9,7 +9,7 @@
 ## AWS Service Interaction Workflow
 
 **User Request Flow:**
-CloudFront CDN routes users to Application Load Balancer → Elastic Beanstalk hosts Streamlit app → Cognito authenticates users with JWT tokens.
+AWS WAF filters malicious requests → CloudFront CDN routes users to Application Load Balancer → Elastic Beanstalk hosts Streamlit app → Cognito authenticates users with JWT tokens.
 
 **AI Processing Chain:**
 Secrets Manager provides API keys → Streamlit app calls AWS Bedrock (8 LLM models) → Strands Agents coordinate multi-agent workflows based on query type.
@@ -20,7 +20,7 @@ Qiskit Framework: Materials Project MCP server retrieves crystallographic data �
 ### Description
 
 1. **User Interface** - Users interact with the Streamlit web application through their browser.
-2. **CloudFront CDN** - Global content delivery network provides SSL termination and caching.
+2. **CloudFront CDN + AWS WAF** - Global content delivery network with integrated Web Application Firewall providing XSS, SQL injection, and OWASP Top 10 protection, rate limiting (400 requests/minute), SSL termination, caching, and DDoS protection via AWS Shield.
 3. **Application Load Balancer** - Distributes incoming traffic across multiple Elastic Beanstalk instances.
 4. **VPC (Virtual Private Cloud)** - Secure network environment containing all AWS resources.
 5. **Elastic Beanstalk** - Platform-as-a-Service hosting the Streamlit application in Docker containers.
@@ -66,6 +66,29 @@ Two specialized MCP servers provide external data integration:
 - **Braket MCP**: Provides quantum circuit analysis, device information, and educational quantum algorithm examples
 
 For complete MCP server documentation, see [Materials Project MCP Integration](materials-project-mcp-integration.md) and [Braket Integration](braket-integration.md).
+
+## Security Architecture
+
+The platform implements enterprise-grade security with multiple protection layers:
+
+### Edge Security (AWS WAF + CloudFront)
+- **AWS WAF Web Application Firewall**: Blocks XSS, SQL injection, and OWASP Top 10 attacks
+- **Rate Limiting**: 400 requests per minute per IP address (supports ~80 concurrent users)
+- **CloudFront Pro**: Global CDN with DDoS protection via AWS Shield Standard
+- **SSL/TLS Encryption**: Automatic HTTPS with free certificates
+
+### Application Security
+- **AWS Cognito**: Enterprise authentication with JWT tokens and email verification
+- **Admin-Controlled Access**: Only admins can create user accounts (no self-signup)
+- **Input Validation**: Comprehensive sanitization and security scanning
+- **Secrets Management**: API keys stored securely in AWS Secrets Manager
+
+### Infrastructure Security
+- **VPC Isolation**: All resources deployed in secure Virtual Private Cloud
+- **IAM Roles**: Least privilege access with scoped permissions
+- **Audit Logging**: Security events tracked for compliance
+
+For complete security documentation, see [Security Guide](securityGuide.md).
 
 ## Data Flow
 
