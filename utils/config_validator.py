@@ -143,7 +143,7 @@ def validate_working_directory(directory: str) -> str:
     # Ensure it's within expected application directories
     allowed_patterns = [
         'Quantum_Matter_Project',
-        'Quantum_Matter_Streamlit_App',
+        'Multi-Agent-Quantum-Materials-Assistant',
         'enhanced_mcp_materials'
     ]
     

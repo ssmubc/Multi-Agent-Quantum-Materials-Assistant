@@ -33,7 +33,7 @@ Before starting, you need an AWS account with proper access:
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd Quantum_Matter_Streamlit_App
+cd Multi-Agent-Quantum-Materials-Assistant
 pip install -r requirements.txt
 
 # Set AWS profile FIRST (required for setup scripts)
@@ -90,7 +90,7 @@ Here is how the configuration should look like:
 ```bash
 # Clone and setup (if not done already)
 git clone <repository-url>
-cd Quantum_Matter_Streamlit_App
+cd Multi-Agent-Quantum-Materials-Assistant
 pip install -r requirements.txt
 
 # Set AWS profile FIRST (required for setup scripts)
