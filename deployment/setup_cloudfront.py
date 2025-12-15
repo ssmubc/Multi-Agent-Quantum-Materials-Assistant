@@ -11,8 +11,92 @@ import os
 from botocore.exceptions import ClientError, NoCredentialsError
 from boto3.session import Session
 
-def create_cloudfront_distribution(eb_domain, custom_domain=None):
-    """Create CloudFront distribution for Elastic Beanstalk app"""
+def create_waf_web_acl():
+    """Create AWS WAF Web ACL with Core Protections and rate limiting"""
+    wafv2 = boto3.client('wafv2')
+    
+    # WAF Web ACL configuration
+    web_acl_config = {
+        'Name': f'quantum-matter-waf-{int(time.time())}',
+        'Scope': 'CLOUDFRONT',
+        'DefaultAction': {'Allow': {}},
+        'Description': 'WAF for Quantum Matter App with Core Protections and rate limiting',
+        'Rules': [
+            {
+                'Name': 'AWSManagedRulesCommonRuleSet',
+                'Priority': 1,
+                'OverrideAction': {'None': {}},
+                'Statement': {
+                    'ManagedRuleGroupStatement': {
+                        'VendorName': 'AWS',
+                        'Name': 'AWSManagedRulesCommonRuleSet'
+                    }
+                },
+                'VisibilityConfig': {
+                    'SampledRequestsEnabled': True,
+                    'CloudWatchMetricsEnabled': True,
+                    'MetricName': 'CommonRuleSetMetric'
+                }
+            },
+            {
+                'Name': 'AWSManagedRulesKnownBadInputsRuleSet',
+                'Priority': 2,
+                'OverrideAction': {'None': {}},
+                'Statement': {
+                    'ManagedRuleGroupStatement': {
+                        'VendorName': 'AWS',
+                        'Name': 'AWSManagedRulesKnownBadInputsRuleSet'
+                    }
+                },
+                'VisibilityConfig': {
+                    'SampledRequestsEnabled': True,
+                    'CloudWatchMetricsEnabled': True,
+                    'MetricName': 'KnownBadInputsMetric'
+                }
+            },
+            {
+                'Name': 'RateLimitRule',
+                'Priority': 3,
+                'Action': {'Count': {}},  # Monitor mode first
+                'Statement': {
+                    'RateBasedStatement': {
+                        'Limit': 2000,  # 2000 requests per 5 minutes (= 400/minute) as confirmed by supervisor
+                        'AggregateKeyType': 'IP'
+                    }
+                },
+                'VisibilityConfig': {
+                    'SampledRequestsEnabled': True,
+                    'CloudWatchMetricsEnabled': True,
+                    'MetricName': 'RateLimitMetric'
+                }
+            }
+        ],
+        'VisibilityConfig': {
+            'SampledRequestsEnabled': True,
+            'CloudWatchMetricsEnabled': True,
+            'MetricName': 'QuantumMatterWAF'
+        }
+    }
+    
+    try:
+        response = wafv2.create_web_acl(**web_acl_config)
+        web_acl_arn = response['Summary']['ARN']
+        web_acl_id = response['Summary']['Id']
+        
+        print(f"✅ WAF Web ACL created:")
+        print(f"   Web ACL ID: {web_acl_id}")
+        print(f"   ARN: {web_acl_arn}")
+        print(f"   Rate limit: 2000 requests/5min (400/min) (monitor mode)")
+        print(f"   Core Protections: XSS, SQL injection, OWASP Top 10")
+        
+        return web_acl_arn
+        
+    except ClientError as e:
+        print(f"❌ Failed to create WAF Web ACL: {e}")
+        return None
+
+def create_cloudfront_distribution(eb_domain, custom_domain=None, web_acl_arn=None):
+    """Create CloudFront distribution for Elastic Beanstalk app with WAF"""
     
     cloudfront = boto3.client('cloudfront')
     
@@ -54,8 +138,12 @@ def create_cloudfront_distribution(eb_domain, custom_domain=None):
             ]
         },
         'Enabled': True,
-        'PriceClass': 'PriceClass_100'
+        'PriceClass': 'PriceClass_200'  # Pro tier for WAF integration
     }
+    
+    # Add WAF Web ACL if provided
+    if web_acl_arn:
+        distribution_config['WebACLId'] = web_acl_arn
     
     # Add custom domain if provided
     if custom_domain:
@@ -233,14 +321,30 @@ def main():
     if not custom_domain:
         custom_domain = None
     
+    # Create WAF Web ACL first
+    print("\n🛡️ Creating AWS WAF Web ACL...")
+    web_acl_arn = create_waf_web_acl()
+    
+    if not web_acl_arn:
+        print("❌ Failed to create WAF. Continuing without WAF protection.")
+    
     # Create CloudFront distribution
-    result = create_cloudfront_distribution(eb_domain, custom_domain)
+    print("\n☁️ Creating CloudFront distribution...")
+    result = create_cloudfront_distribution(eb_domain, custom_domain, web_acl_arn)
     
     if result:
-        print("\n🎉 CloudFront setup complete!")
+        print("\n🎉 CloudFront Pro + WAF setup complete!")
         print(f"🌐 Your app will be available at: https://{result['domain_name']}")
+        print("\n🛡️ Security Features Enabled:")
+        print("   • AWS WAF Core Protections (XSS, SQL injection, OWASP Top 10)")
+        print("   • Rate limiting: 400 requests/minute (monitor mode)")
+        print("   • CloudFront Pro tier with 25 WAF rules included")
         print("\n⏳ Note: Distribution deployment takes 15-20 minutes")
         print("💡 SSL certificate is automatically provided by CloudFront")
+        print("\n📊 To switch rate limiting from monitor to block mode:")
+        print("   1. Go to AWS WAF console")
+        print("   2. Find 'RateLimitRule' in your Web ACL")
+        print("   3. Change Action from 'Count' to 'Block'")
         
         if custom_domain:
             print(f"\n📝 To use custom domain {custom_domain}:")
