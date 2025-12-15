@@ -50,7 +50,14 @@ New users must set their permanent password on first login after receiving their
 ![Alt text](images/admin_privilage_enable.png)
 Administrators have access to user management capabilities through the admin panel interface. For first-time deployment, a "Become Admin" button appears when no admin group exists - clicking this button creates the admin user group and grants the deployer administrative privileges.
 
-**Important for First Deployer:** The deployer must already have a confirmed Cognito account (created before enabling admin-only mode or manually through AWS Console) to access the bootstrap system. Self-registration is disabled from the start.
+**First-Time Deployer Setup Process:**
+1. **During setup_cognito.py**: When prompted "Create bootstrap user for first-time deployment?", enter your email and password
+2. **Login to app**: Use the email and password you provided during setup to login
+3. **Bootstrap admin**: Click the "Become Admin" button (appears only when no admins exist)
+4. **Refresh session**: Sign out and log back in to activate admin privileges
+5. **Admin panel access**: Admin panel will now be visible in the sidebar
+
+**Alternative Setup:** If you skip bootstrap user creation during setup_cognito.py, manually create your account through AWS Cognito Console before accessing the application. Self-registration is disabled from the start.
 
 ### Verify Cognito Admin Access
 ![Alt text](images/verify_cognito_admin_access.png)
