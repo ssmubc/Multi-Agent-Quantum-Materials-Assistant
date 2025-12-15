@@ -309,13 +309,27 @@ python -m setup.setup_cognito
 4. **Admin panel**: Access user management in sidebar after becoming admin
 5. **Create users and other admins**: Only admins can create new accounts with temporary passwords
 
-### Add CloudFront SSL/CDN (Optional)
+### Add CloudFront Pro + AWS WAF Security (Optional)
 **Run AFTER successful deployment:**
 ```bash
 python -m deployment.setup_cloudfront
 ```
-**Benefits**: Free SSL, global CDN, 15-20 minutes deployment time  
-**Access**: CloudFront URL will be displayed in terminal output and available in AWS Console → CloudFront → Distributions
+**Enterprise Security Features:**
+- **AWS WAF Web Application Firewall** with OWASP Top 10 protection
+- **XSS & SQL Injection Protection** - blocks attacks immediately
+- **Rate Limiting** - 400 requests/minute per IP (supports ~80 concurrent users)
+- **CloudFront Pro tier** - global CDN with 25 WAF rules included
+- **Free SSL certificate** - automatic HTTPS encryption
+- **DDoS protection** - AWS Shield integration
+
+**Deployment Time**: 15-20 minutes  
+**Access**: Secure HTTPS URL displayed in terminal and available in AWS Console → CloudFront → Distributions
+
+**WAF Management:**
+- **Monitor Mode**: Rate limiting starts in safe monitor mode (logs violations, allows traffic)
+- **Block Mode**: Switch to enforcement mode via AWS WAF console when ready
+- **Real-time Monitoring**: View blocked attacks in AWS WAF console
+- **Automatic Updates**: AWS continuously updates security rules
 
 ## Security Measures Implemented
 
@@ -326,9 +340,17 @@ python -m deployment.setup_cloudfront
 
 **Application Security:**
 - Comprehensive input validation and sanitization
-- Rate limiting protection (5 requests per 60 seconds)
-- HTTP security headers for XSS and CSRF protection
-- Command injection prevention with secure subprocess handling
+- **Multi-layer rate limiting**:
+  - Application level: 10 requests per 60 seconds per session
+  - Infrastructure level: AWS WAF 400 requests/minute per IP
+- **AWS WAF Web Application Firewall** (when CloudFront is deployed):
+  - XSS (Cross-Site Scripting) protection
+  - SQL injection prevention
+  - OWASP Top 10 vulnerability coverage
+  - Known bad input filtering
+  - Command injection prevention
+- HTTP security headers for additional XSS and CSRF protection
+- Secure subprocess handling with path validation
 
 **Monitoring & Compliance:**
 - Security event audit logging
@@ -359,7 +381,12 @@ python -m deployment.setup_cloudfront
 - **Bootstrap admin fails**: Check CloudWatch logs for IAM permission errors
 - **User creation fails**: Verify admin has proper Cognito group membership
 
-**CloudFront Deployment:**
-- Allow 15-20 minutes for global distribution
+**CloudFront + WAF Deployment:**
+- Allow 15-20 minutes for global distribution and WAF rule propagation
 - Test Elastic Beanstalk URL before CloudFront URL
 - Verify SSL certificate provisioning status
+- **WAF troubleshooting**:
+  - Check AWS WAF console for blocked requests
+  - Monitor rate limiting in CloudWatch metrics
+  - Switch from monitor to block mode when ready
+  - Verify Web ACL association with CloudFront distribution
