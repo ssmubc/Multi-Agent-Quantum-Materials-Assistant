@@ -28,7 +28,8 @@ The following architecture diagram illustrates the various AWS components utiliz
 - **Materials Project Integration** with real-time MCP server and auto-recovery
 - **Strands Agentic Workflows** for multi-material analysis and DFT parameters
 - **Enterprise Authentication** with Amazon Cognito and admin-controlled user creation
-- **Global CDN** with CloudFront SSL and enterprise security
+- **Enterprise Security** with CloudFront Pro + AWS WAF (XSS, SQL injection, OWASP Top 10 protection)
+- **Global CDN** with SSL certificates and DDoS protection
 
 For detailed feature documentation, see [User Guide](docs/user-guide.md).
 
