@@ -60,7 +60,8 @@ The application uses AWS cloud services with security features including:
 - Working directories validated (path traversal protection)
 
 ### Rate Limiting
-- 10 requests per 60 seconds per user session
+- **Application Level**: 10 requests per 60 seconds per user session
+- **Infrastructure Level**: AWS WAF rate limiting (400 requests/minute per IP)
 - Session-based tracking using correlation IDs
 - Automatic blocking with TooManyRequestsError
 - CloudFront DDoS protection
@@ -101,10 +102,17 @@ The application uses AWS cloud services with security features including:
 - **Isolated environments** for different deployment stages
 - **Health monitoring** tracks application and infrastructure status
 
-### CloudFront CDN
+### CloudFront CDN + AWS WAF
 - **Global DDoS protection** through AWS Shield
 - **Automatic SSL certificates** for HTTPS encryption
+- **AWS WAF Web Application Firewall** with enterprise-grade protection:
+  - **XSS Protection**: Blocks cross-site scripting attacks immediately
+  - **SQL Injection Protection**: Prevents database manipulation attempts
+  - **OWASP Top 10 Protection**: Comprehensive coverage of web vulnerabilities
+  - **Rate Limiting**: 400 requests per minute per IP address
+  - **Known Bad Inputs**: Blocks malicious patterns and payloads
 - **Edge security** filters malicious traffic before it reaches your application
+- **CloudFront Pro tier** includes 25 WAF rules at no extra cost
 
 ---
 
@@ -124,7 +132,8 @@ The application uses AWS cloud services with security features including:
 ### ✅ AWS Security Services Used
 - **IAM roles** for secure service access
 - **Secrets Manager** for credential storage
-- **CloudFront** for DDoS protection
+- **CloudFront Pro** for global CDN and DDoS protection
+- **AWS WAF** for web application firewall protection
 - **Elastic Beanstalk** managed security updates
 
 ---
@@ -144,7 +153,52 @@ The application uses AWS cloud services with security features including:
 
 ---
 
-## 8. Getting Help
+## 8. AWS WAF Protection Details
+
+### Enterprise Security Features
+The application uses **AWS WAF (Web Application Firewall)** integrated with CloudFront Pro to provide military-grade security:
+
+**Core Protections (Always Active):**
+- **Cross-Site Scripting (XSS)**: Blocks malicious scripts injected into web pages
+- **SQL Injection**: Prevents unauthorized database access attempts
+- **Command Injection**: Stops attempts to execute system commands
+- **Path Traversal**: Blocks attempts to access unauthorized files
+- **Remote File Inclusion**: Prevents loading of malicious external files
+- **CSRF Protection**: Guards against cross-site request forgery
+
+**Rate Limiting:**
+- **Limit**: 400 requests per minute per IP address (2000 per 5-minute window)
+- **Mode**: Monitor mode (logs violations, allows traffic) - can be switched to block mode
+- **Scope**: Per IP address tracking
+- **Purpose**: Prevents abuse while supporting ~80 concurrent users
+
+**Managed Rule Sets:**
+- **AWSManagedRulesCommonRuleSet**: OWASP Top 10 and common attack patterns
+- **AWSManagedRulesKnownBadInputsRuleSet**: Known malicious payloads and signatures
+- **Automatic Updates**: AWS continuously updates rules for new threats
+
+### WAF Management
+
+**Monitoring:**
+- View blocked requests in AWS WAF console
+- CloudWatch metrics for attack patterns
+- Real-time security dashboards
+
+**Rate Limiting Control:**
+1. Go to **AWS WAF console**
+2. Find your Web ACL (quantum-matter-waf-*)
+3. Locate **RateLimitRule**
+4. Change Action from **Count** (monitor) to **Block** (enforce)
+
+**Security Benefits:**
+- **Zero-day protection**: Blocks unknown attack patterns
+- **Global threat intelligence**: AWS-managed rule updates
+- **Performance**: Filtering at edge locations (minimal latency)
+- **Cost-effective**: 25 rules included with CloudFront Pro
+
+---
+
+## 9. Getting Help
 
 If you have security concerns or questions:
 
