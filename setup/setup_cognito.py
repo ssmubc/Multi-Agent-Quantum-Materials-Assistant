@@ -11,10 +11,36 @@ import sys
 import getpass
 from botocore.exceptions import ClientError
 
+def get_aws_region():
+    """Get AWS region from environment or profile, with user prompt as fallback"""
+    # Check environment variable first
+    region = os.getenv('AWS_REGION') or os.getenv('AWS_DEFAULT_REGION')
+    if region:
+        return region
+    
+    # Try to get from AWS profile
+    try:
+        session = boto3.Session()
+        if session.region_name:
+            return session.region_name
+    except:
+        pass
+    
+    # Prompt user
+    print("\n⚠️ AWS region not detected")
+    region = input("🌍 Enter AWS region (e.g., us-east-1, ca-central-1): ").strip()
+    if region:
+        os.environ['AWS_REGION'] = region
+        return region
+    
+    # Final fallback
+    print("⚠️ No region specified, defaulting to us-east-1")
+    return 'us-east-1'
+
 def list_user_pools():
     """List all available User Pools and let user select one"""
     try:
-        region = os.getenv('AWS_REGION', 'us-east-1')
+        region = get_aws_region()
         cognito = boto3.client('cognito-idp', region_name=region)
         
         print("🔍 Finding your Cognito User Pools...")
@@ -63,7 +89,7 @@ def update_user_pool_to_admin_only(pool_id=None):
             return False
     
     try:
-        region = os.getenv('AWS_REGION', 'us-east-1')
+        region = get_aws_region()
         cognito = boto3.client('cognito-idp', region_name=region)
         print(f"✅ Connected to Cognito User Pool: {pool_id}")
         
@@ -117,9 +143,9 @@ def create_cognito_user_pool():
     
     # Initialize Cognito client
     try:
-        region = os.getenv('AWS_REGION', 'us-east-1')
+        region = get_aws_region()
         cognito = boto3.client('cognito-idp', region_name=region)
-        print("✅ Connected to AWS Cognito")
+        print(f"✅ Connected to AWS Cognito in {region}")
     except Exception as e:
         print(f"❌ Failed to connect to AWS: {e}")
         return None
@@ -226,7 +252,7 @@ def create_cognito_user_pool():
 def create_test_user(user_pool_id, email, temporary_password):
     """Create a bootstrap user in the User Pool"""
     try:
-        region = os.getenv('AWS_REGION', 'us-east-1')
+        region = get_aws_region()
         cognito = boto3.client('cognito-idp', region_name=region)
         
         print(f"🔄 Creating test user: {email}")
@@ -259,62 +285,46 @@ def create_test_user(user_pool_id, email, temporary_password):
 def get_eb_environments():
     """Get Elastic Beanstalk environments using AWS API"""
     try:
-        region = os.getenv('AWS_REGION', 'us-east-1')
+        region = get_aws_region()
         eb = boto3.client('elasticbeanstalk', region_name=region)
+        print(f"🔍 Looking for EB environments in {region}...")
         environments = eb.describe_environments()
         
         if not environments['Environments']:
             print("⚠️ No Elastic Beanstalk environments found")
             return None
         
-        # Find quantum-matter environments
-        quantum_envs = [env for env in environments['Environments'] if 'quantum-matter' in env['EnvironmentName'].lower()]
+        # Show all environments (no filtering)
+        all_envs = environments['Environments']
         
-        if quantum_envs:
-            if len(quantum_envs) == 1:
-                env = quantum_envs[0]
-                print(f"✅ Found EB environment: {env['EnvironmentName']}")
-                return env['EnvironmentName']
-            else:
-                print("📋 Multiple Quantum Matter environments found:")
-                for i, env in enumerate(quantum_envs, 1):
-                    status = env.get('Status', 'Unknown')
-                    health = env.get('Health', 'Unknown')
-                    print(f"  {i}. {env['EnvironmentName']} ({status}, {health})")
-                
-                while True:
-                    try:
-                        choice = input(f"\n🎯 Select environment (1-{len(quantum_envs)}): ").strip()
-                        if choice:
-                            idx = int(choice) - 1
-                            if 0 <= idx < len(quantum_envs):
-                                selected_env = quantum_envs[idx]
-                                print(f"✅ Selected: {selected_env['EnvironmentName']}")
-                                return selected_env['EnvironmentName']
-                        else:
-                            return None
-                    except (ValueError, KeyboardInterrupt):
-                        return None
+        if len(all_envs) == 1:
+            # Only one environment, auto-select it
+            env = all_envs[0]
+            print(f"✅ Found EB environment: {env['EnvironmentName']}")
+            return env['EnvironmentName']
         
-        # Show all environments if no quantum-matter found
+        # Multiple environments, let user choose
         print("📋 Available EB environments:")
-        for i, env in enumerate(environments['Environments'], 1):
+        for i, env in enumerate(all_envs, 1):
             status = env.get('Status', 'Unknown')
             health = env.get('Health', 'Unknown')
             print(f"  {i}. {env['EnvironmentName']} ({status}, {health})")
         
         while True:
             try:
-                choice = input(f"\n🎯 Select environment (1-{len(environments['Environments'])}): ").strip()
+                choice = input(f"\n🎯 Select environment (1-{len(all_envs)}): ").strip()
                 if choice:
                     idx = int(choice) - 1
-                    if 0 <= idx < len(environments['Environments']):
-                        selected_env = environments['Environments'][idx]
+                    if 0 <= idx < len(all_envs):
+                        selected_env = all_envs[idx]
                         print(f"✅ Selected: {selected_env['EnvironmentName']}")
                         return selected_env['EnvironmentName']
+                    else:
+                        print("❌ Invalid selection. Please try again.")
                 else:
                     return None
             except (ValueError, KeyboardInterrupt):
+                print("\n❌ Selection cancelled.")
                 return None
                 
     except ClientError as e:
@@ -322,22 +332,8 @@ def get_eb_environments():
         return None
 
 def set_eb_environment_variables(config):
-    """Set Cognito environment variables in Elastic Beanstalk"""
+    """Set Cognito environment variables in Elastic Beanstalk using AWS API"""
     try:
-        import subprocess
-        
-        # Check if EB CLI is available (use which to find eb path)
-        import shutil
-        eb_path = shutil.which('eb')
-        if not eb_path:
-            print("⚠️ EB CLI not found in PATH. Skipping automatic EB configuration.")
-            return False
-        
-        result = subprocess.run([eb_path, '--version'], capture_output=True, text=True)
-        if result.returncode != 0:
-            print("⚠️ EB CLI not working properly. Skipping automatic EB configuration.")
-            return False
-        
         # Get available environments using AWS API
         print("\n🔍 Checking EB environments...")
         env_name = get_eb_environments()
@@ -346,37 +342,57 @@ def set_eb_environment_variables(config):
             print("⏭️ Skipping EB configuration")
             return False
         
-        # Set environment variables
+        # Use AWS API directly (more reliable than EB CLI)
+        region = get_aws_region()
+        eb = boto3.client('elasticbeanstalk', region_name=region)
+        
         print(f"🔄 Setting Cognito variables in EB environment: {env_name}")
-        print("🔒 Configuring sensitive credentials (values hidden for security)...")
+        print("🔒 Configuring sensitive credentials...")
         
-        # Use environment variables for security
-        env_vars = os.environ.copy()
-        env_vars.update({
-            'COGNITO_POOL_ID': config['user_pool_id'],
-            'COGNITO_APP_CLIENT_ID': config['app_client_id'],
-            'COGNITO_APP_CLIENT_SECRET': config['app_client_secret']
-        })
+        # Prepare environment variables
+        option_settings = [
+            {
+                'Namespace': 'aws:elasticbeanstalk:application:environment',
+                'OptionName': 'COGNITO_POOL_ID',
+                'Value': config['user_pool_id']
+            },
+            {
+                'Namespace': 'aws:elasticbeanstalk:application:environment',
+                'OptionName': 'COGNITO_APP_CLIENT_ID',
+                'Value': config['app_client_id']
+            },
+            {
+                'Namespace': 'aws:elasticbeanstalk:application:environment',
+                'OptionName': 'COGNITO_APP_CLIENT_SECRET',
+                'Value': config['app_client_secret']
+            },
+            {
+                'Namespace': 'aws:elasticbeanstalk:application:environment',
+                'OptionName': 'COGNITO_REGION',
+                'Value': config['region']
+            },
+            {
+                'Namespace': 'aws:elasticbeanstalk:application:environment',
+                'OptionName': 'AUTH_MODE',
+                'Value': 'cognito'
+            }
+        ]
         
-        cmd = [eb_path, 'setenv', 'AUTH_MODE=cognito', '-e', env_name]
+        # Update environment
+        eb.update_environment(
+            EnvironmentName=env_name,
+            OptionSettings=option_settings
+        )
         
-        # Set credentials via separate secure commands
-        for key, value in [('COGNITO_POOL_ID', config['user_pool_id']), 
-                          ('COGNITO_APP_CLIENT_ID', config['app_client_id']),
-                          ('COGNITO_APP_CLIENT_SECRET', config['app_client_secret'])]:
-            secure_cmd = [eb_path, 'setenv', f'{key}={value}', '-e', env_name]
-            subprocess.run(secure_cmd, capture_output=True, text=True, env=env_vars)
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env_vars)
-        
-        if result.returncode == 0:
-            print(f"✅ Cognito variables set in EB environment: {env_name}")
-            print("🔄 Environment update in progress...")
-            return True
-        else:
-            print(f"❌ Failed to set EB variables: {result.stderr}")
-            return False
+        print(f"✅ Cognito variables set in EB environment: {env_name}")
+        print("🔄 Environment update in progress (takes 2-5 minutes)...")
+        return True
             
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        print(f"❌ Failed to set EB variables: {error_code}")
+        print(f"   Error: {e.response['Error']['Message']}")
+        return False
     except Exception as e:
         print(f"❌ Error setting EB variables: {e}")
         return False
@@ -490,7 +506,40 @@ def main():
     mode = input("\n🎯 Choose mode:\n1. Create NEW User Pool\n2. Update EXISTING User Pool\n\nEnter choice (1 or 2): ").strip()
     
     if mode == '2':
-        if update_user_pool_to_admin_only():
+        pool_id = list_user_pools()
+        if not pool_id:
+            print("❌ No User Pool selected")
+            return
+        
+        if update_user_pool_to_admin_only(pool_id):
+            # Get pool details for EB configuration
+            region = get_aws_region()
+            cognito = boto3.client('cognito-idp', region_name=region)
+            
+            # Get app client details
+            print("🔍 Getting app client details...")
+            clients_response = cognito.list_user_pool_clients(UserPoolId=pool_id, MaxResults=60)
+            
+            if clients_response['UserPoolClients']:
+                client_id = clients_response['UserPoolClients'][0]['ClientId']
+                client_response = cognito.describe_user_pool_client(UserPoolId=pool_id, ClientId=client_id)
+                client_secret = client_response['UserPoolClient'].get('ClientSecret', '')
+                
+                config = {
+                    'user_pool_id': pool_id,
+                    'app_client_id': client_id,
+                    'app_client_secret': client_secret,
+                    'region': region
+                }
+                
+                # Save to .env
+                save_config_to_env(config)
+                
+                # Offer to update EB environment
+                update_eb = input("\n🔄 Update EB environment variables? (y/n): ").lower().strip()
+                if update_eb == 'y':
+                    set_eb_environment_variables(config)
+            
             print("\n" + "=" * 40)
             print("🎉 Update Complete!")
             print("=" * 40)
