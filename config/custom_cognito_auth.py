@@ -28,7 +28,7 @@ class CustomCognitoAuth:
         self.pool_id = os.getenv('COGNITO_POOL_ID')
         self.app_client_id = os.getenv('COGNITO_APP_CLIENT_ID') 
         self.app_client_secret = os.getenv('COGNITO_APP_CLIENT_SECRET')
-        self.region = 'us-east-1'
+        self.region = os.getenv('COGNITO_REGION', os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
         
         if self.pool_id and self.app_client_id:
             self.cognito = boto3.client('cognito-idp', region_name=self.region)
