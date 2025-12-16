@@ -4,6 +4,7 @@ Setup script for storing Materials Project API key in AWS Secrets Manager
 """
 
 import sys
+import os
 import logging
 import getpass
 from utils.secrets_manager import store_mp_api_key, get_mp_api_key
@@ -16,8 +17,14 @@ def main():
     print("🔧 Quantum Matter App - Secrets Setup")
     print("=" * 50)
     
-    # Get API key from user (secure input)
-    api_key = getpass.getpass("Enter your Materials Project API key: ").strip()
+    # Check for environment variable first
+    api_key = os.getenv('MATERIALS_PROJECT_API_KEY', '').strip()
+    
+    if api_key:
+        print(f"✅ Using API key from environment variable")
+    else:
+        # Get API key from user (secure input)
+        api_key = getpass.getpass("Enter your Materials Project API key: ").strip()
     
     if not api_key:
         print("❌ No API key provided")
