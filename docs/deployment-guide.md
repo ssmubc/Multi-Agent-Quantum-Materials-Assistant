@@ -59,7 +59,7 @@ python run_local.py
 
 ## Phase 1: Setup AWS Resources (10 minutes)
 
-**Note**: Deploy in the `us-east-1` region for best compatibility and full Bedrock model access.
+**Supported Regions:** Deploy in `us-east-1` or `ca-central-1` (both fully tested). The application automatically detects and uses your deployment region.
 
 ### Step 1: Create VPC (if needed)
 **Skip this step if you already have a VPC**
@@ -268,18 +268,18 @@ python -m deployment.deploy_fixed_integration
 Leave the Monitoring, Updates, and Log sections unchanged.
 Provide the following under the Environment variables/Enviornment properties section:
 
+**Minimal Initial Configuration (Required):**
+
 | Source | Key | Value |
 |--------|-----|-------|
-| Plain text | AWS_DEFAULT_REGION | us-east-1 |
 | Plain text | STREAMLIT_SERVER_HEADLESS | true |
 | Plain text | STREAMLIT_SERVER_ADDRESS | 0.0.0.0 |
 | Plain text | STREAMLIT_SERVER_PORT | 8501 |
-| Plain text | MCP_SERVER_ENABLED | true |
 | Plain text | AUTH_MODE | demo |
 | Plain text | DEMO_USERNAME | demo |
 | Plain text | DEMO_PASSWORD | quantum2025 |
 
-**Note**: Demo credentials provide fallback authentication if Cognito is not configured.
+**Note:** `setup_cognito.py` (Phase 3) automatically adds 5 Cognito variables and changes `AUTH_MODE` to `cognito`. `setup_cloudfront.py` adds 3 CloudFront security variables.
 
 **✅ Success**: App accessible at EB URL (5-10 minutes)
 
@@ -291,7 +291,7 @@ If you do not set up Cognito authentication (Phase 3), use these demo credential
 ## Phase 3: Optional Enhancements
 
 ### Add Cognito Authentication (Optional)
-**Run AFTER successful deployment:**
+**Run AFTER successful deployment** (if using AWS SSO, set profile first: `set AWS_PROFILE=your-profile-name`):
 ```bash
 python -m setup.setup_cognito
 ```
