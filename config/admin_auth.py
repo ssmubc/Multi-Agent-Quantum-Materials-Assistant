@@ -16,7 +16,7 @@ class CognitoAdminAuth:
     
     def __init__(self):
         self.pool_id = os.getenv('COGNITO_POOL_ID')
-        self.region = 'us-east-1'
+        self.region = os.getenv('COGNITO_REGION', os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
         
         if self.pool_id:
             self.cognito = boto3.client('cognito-idp', region_name=self.region)
