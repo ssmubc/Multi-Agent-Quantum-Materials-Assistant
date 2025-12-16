@@ -13,7 +13,8 @@ from boto3.session import Session
 
 def create_waf_web_acl():
     """Create AWS WAF Web ACL with Core Protections and rate limiting"""
-    wafv2 = boto3.client('wafv2')
+    # WAF for CloudFront MUST be in us-east-1 (global service)
+    wafv2 = boto3.client('wafv2', region_name='us-east-1')
     
     # WAF Web ACL configuration
     web_acl_config = {
