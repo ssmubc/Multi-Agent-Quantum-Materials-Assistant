@@ -223,7 +223,7 @@ def generate_structure_id(material_id: str = None, structure: Structure = None) 
         return f"mp-{clean_id}"
     else:
         content = str(structure) if structure else str(uuid.uuid4())
-        return hashlib.md5(content.encode()).hexdigest()[:8]
+        return hashlib.sha256(content.encode()).hexdigest()[:8]
 
 @mcp.tool()
 def search_materials_by_formula(chemical_formula: str) -> List[TextContent]:
