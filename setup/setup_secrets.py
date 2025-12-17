@@ -41,8 +41,7 @@ def main():
         region = "us-east-1"
     
     print(f"\n📡 Storing API key in AWS Secrets Manager...")
-    print(f"   Secret name: {secret_name}")
-    print(f"   Region: {region}")
+    print(f"   🔒 Credentials will be encrypted at rest")
     
     # Store the secret
     success = store_mp_api_key(api_key, secret_name, region)
