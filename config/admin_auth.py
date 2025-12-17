@@ -67,7 +67,9 @@ class CognitoAdminAuth:
                 Username=username,
                 GroupName='admin'
             )
-            logger.info(f"✅ Added {username} to admin group")
+            # Sanitize username for logging to prevent log injection
+            safe_username = username.replace('\n', '').replace('\r', '')[:100]
+            logger.info(f"✅ Added {safe_username} to admin group")
             return True
         except Exception as e:
             logger.error(f"Failed to add user to admin group: {e}")
