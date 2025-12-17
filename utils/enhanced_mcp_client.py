@@ -1013,7 +1013,9 @@ class EnhancedMCPAgent:
     
     def search(self, query: str) -> Dict[str, Any]:
         """Search for materials - returns structured data for base model"""
-        logger.info(f"🚀 MCP AGENT: Starting search for query: '{query}'")
+        # Sanitize query for logging to prevent log injection
+        safe_query = query.replace('\n', '').replace('\r', '')[:100]
+        logger.info(f"🚀 MCP AGENT: Starting search for query: '{safe_query}'")
         
         # Check if server is available, use fallback if not
         if not self.server_available:
@@ -1026,12 +1028,14 @@ class EnhancedMCPAgent:
             mp_match = re.search(r'(mp-\d+)', query.lower())
             if mp_match:
                 material_id = mp_match.group(1)
-                logger.info(f"📋 MCP AGENT: Detected material ID query: {material_id} from '{query}'")
+                # Sanitize for logging to prevent log injection
+                safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+                logger.info(f"📋 MCP AGENT: Detected material ID query: {safe_material_id} from '{safe_query}'")
                 material_data = self.client.get_material_by_id(material_id)
                 if material_data:
-                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {material_id}")
+                    logger.info(f"✅ MCP AGENT: Successfully retrieved structured material {safe_material_id}")
                     return material_data  # Already structured by get_material_by_id
-                logger.warning(f"❌ MCP AGENT: Material {material_id} not found")
+                logger.warning(f"❌ MCP AGENT: Material {safe_material_id} not found")
                 return {"error": f"Material {material_id} not found"}
             
             # Special handling for common materials to find stable phases
@@ -1040,7 +1044,9 @@ class EnhancedMCPAgent:
             # Try to get known stable phase first
             stable_data = get_known_stable_phase(query, self.client)
             if stable_data:
-                logger.info(f"✅ MCP AGENT: Found known stable phase for {query}")
+                # Sanitize query for logging to prevent log injection
+                safe_query = query.replace('\n', '').replace('\r', '')[:100]
+                logger.info(f"✅ MCP AGENT: Found known stable phase for {safe_query}")
                 return stable_data
             
             # Check if user wants to see all options vs detailed analysis
@@ -1049,7 +1055,9 @@ class EnhancedMCPAgent:
             ])
             
             # Handle formula queries
-            logger.info(f"🧪 MCP AGENT: Detected formula query: {query}, show_all={show_all_options}")
+            # Sanitize query for logging to prevent log injection
+            safe_query = query.replace('\n', '').replace('\r', '')[:100]
+            logger.info(f"🧪 MCP AGENT: Detected formula query: {safe_query}, show_all={show_all_options}")
             results = self.client.search_materials(query)
             if results:
                 # Check if results contain errors
@@ -1077,7 +1085,10 @@ class EnhancedMCPAgent:
                         if material_data:
                             material_data["search_results"] = results
                             material_data["search_count"] = len(results)
-                            logger.info(f"✅ MCP AGENT: Found structured data for {query} via {best_material_id} (smart selection)")
+                            # Sanitize for logging to prevent log injection
+                            safe_query = query.replace('\n', '').replace('\r', '')[:100]
+                            safe_best_id = best_material_id.replace('\n', '').replace('\r', '')[:50]
+                            logger.info(f"✅ MCP AGENT: Found structured data for {safe_query} via {safe_best_id} (smart selection)")
                             return material_data
                 
                 # Fallback to basic result format
@@ -1087,14 +1098,20 @@ class EnhancedMCPAgent:
                     "count": len(results),
                     "source": "Enhanced MCP Server"
                 }
-                logger.info(f"✅ MCP AGENT: Found {len(results)} materials for formula {query}")
+                # Sanitize query for logging to prevent log injection
+                safe_query = query.replace('\n', '').replace('\r', '')[:100]
+                logger.info(f"✅ MCP AGENT: Found {len(results)} materials for formula {safe_query}")
                 return result
             
-            logger.warning(f"❌ MCP AGENT: No materials found for query: {query}")
+            # Sanitize query for logging to prevent log injection
+            safe_query = query.replace('\n', '').replace('\r', '')[:100]
+            logger.warning(f"❌ MCP AGENT: No materials found for query: {safe_query}")
             return {"error": "No materials found"}
             
         except Exception as e:
-            logger.error(f"💥 MCP AGENT: Search failed for '{query}': {e}")
+            # Sanitize query for logging to prevent log injection
+            safe_query = query.replace('\n', '').replace('\r', '')[:100]
+            logger.error(f"💥 MCP AGENT: Search failed for '{safe_query}': {e}")
             # Try fallback on any error
             logger.info("🔄 MCP AGENT: Attempting fallback search...")
             return self._fallback_search(query)
@@ -1157,7 +1174,9 @@ class EnhancedMCPAgent:
             mp_match = re.search(r'(mp-\d+)', query.lower())
             if mp_match:
                 material_id = mp_match.group(1)
-                logger.info(f"🔄 FALLBACK: Direct API lookup for {material_id}")
+                # Sanitize material_id for logging to prevent log injection
+                safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+                logger.info(f"🔄 FALLBACK: Direct API lookup for {safe_material_id}")
                 return self._get_fallback_material_data(material_id)
             
             # Handle formula queries with direct API
@@ -1206,10 +1225,14 @@ class EnhancedMCPAgent:
                             "geometry": geometry
                         }
                         
-                        logger.info(f"✅ FALLBACK: Found {material_id} via direct API")
+                        # Sanitize material_id for logging to prevent log injection
+                        safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+                        logger.info(f"✅ FALLBACK: Found {safe_material_id} via direct API")
                         return data
                     else:
-                        logger.warning(f"⚠️ FALLBACK: No results for {query}")
+                        # Sanitize query for logging to prevent log injection
+                        safe_query = query.replace('\n', '').replace('\r', '')[:100]
+                        logger.warning(f"⚠️ FALLBACK: No results for {safe_query}")
                         return {"error": f"No materials found for {query}"}
                         
                 except Exception as api_error:
@@ -1280,7 +1303,11 @@ class EnhancedMCPAgent:
             data["error"] = error
             data["source"] += " - API timeout"
         
-        logger.info(f"✅ MCP AGENT: Generated fallback data for {material_id}: {formula} ({crystal_system}, {band_gap} eV)")
+        # Sanitize material_id for logging to prevent log injection
+        safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+        safe_formula = formula.replace('\n', '').replace('\r', '')[:20]
+        safe_crystal_system = crystal_system.replace('\n', '').replace('\r', '')[:20]
+        logger.info(f"✅ MCP AGENT: Generated fallback data for {safe_material_id}: {safe_formula} ({safe_crystal_system}, {band_gap} eV)")
         return data
     
     def moire_homobilayer(self, bulk_structure_uri: str, interlayer_spacing: float, max_num_atoms: int, twist_angle: float, vacuum_thickness: float) -> Optional[Dict[str, str]]:
