@@ -179,10 +179,14 @@ class CustomCognitoAuth:
                 st.session_state['auth_method'] = 'custom_cognito'
                 st.session_state['access_token'] = access_token
                 st.session_state['token_validated'] = True
-                logger.info(f"User {email} authenticated with validated token (Cognito username: {cognito_username})")
+                # Sanitize email for logging to prevent log injection
+                safe_email = email.replace('\n', '').replace('\r', '')[:100]
+                logger.info(f"User {safe_email} authenticated with validated token (Cognito username: {cognito_username})")
                 return True, "Login successful!"
             else:
-                logger.error(f"Token validation failed for {email}: {validation_result.get('error')}")
+                # Sanitize email for logging to prevent log injection
+                safe_email = email.replace('\n', '').replace('\r', '')[:100]
+                logger.error(f"Token validation failed for {safe_email}: {validation_result.get('error')}")
                 return False, "Authentication failed - invalid token"
             
         except ClientError as e:
