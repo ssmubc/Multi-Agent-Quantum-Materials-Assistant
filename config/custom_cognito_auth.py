@@ -179,9 +179,10 @@ class CustomCognitoAuth:
                 st.session_state['auth_method'] = 'custom_cognito'
                 st.session_state['access_token'] = access_token
                 st.session_state['token_validated'] = True
-                # Sanitize email for logging to prevent log injection
+                # Sanitize email and username for logging to prevent log injection
                 safe_email = email.replace('\n', '').replace('\r', '')[:100]
-                logger.info(f"User {safe_email} authenticated with validated token (Cognito username: {cognito_username})")
+                safe_username = cognito_username.replace('\n', '').replace('\r', '')[:100]
+                logger.info(f"User {safe_email} authenticated with validated token (Cognito username: {safe_username})")
                 return True, "Login successful!"
             else:
                 # Sanitize email for logging to prevent log injection
