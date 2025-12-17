@@ -1006,7 +1006,7 @@ print("Sample ansatz created with", ansatz.num_parameters, "parameters")'''
                         braket_data = None
                         
                         if 'ghz' in query.lower():
-                            qubit_match = re.search(r'(\d+)\s*qubit', query.lower())
+                            qubit_match = re.search(r'(\d{1,3})\s*qubit', query.lower())
                             num_qubits = int(qubit_match.group(1)) if qubit_match else 3
                             braket_data = braket_integration.create_ghz_circuit(num_qubits)
                         elif 'bell' in query.lower():
