@@ -194,7 +194,7 @@ def validate_query(query: str) -> str:
         raise ValueError("Invalid query length (max 5000 characters)")
     
     # Remove potential script tags and suspicious patterns
-    cleaned = re.sub(r'<[^>]*>', '', query)
+    cleaned = re.sub(r'<[^>]{0,200}>', '', query)
     if len(cleaned) != len(query):
         raise ValueError("HTML/XML tags not allowed in queries")
     
