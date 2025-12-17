@@ -371,7 +371,7 @@ class StrandsSupervisorAgent(BaseAgent):
                 twist_angle = 1.1  # magic angle default
                 interlayer_spacing = 3.4  # default for graphene
                 
-                angle_match = re.search(r'(\d+\.?\d*)\s*degree', query_lower)
+                angle_match = re.search(r'(\d+(?:\.\d+)?)\s*degree', query_lower)
                 if angle_match:
                     twist_angle = float(angle_match.group(1))
                 
@@ -418,12 +418,12 @@ class StrandsSupervisorAgent(BaseAgent):
         twist_angle = 1.1  # magic angle default
         interlayer_spacing = 3.4  # default for graphene-like
         
-        angle_match = re.search(r'(\d+\.?\d*)\s*degree', query_lower)
+        angle_match = re.search(r'(\d+(?:\.\d+)?)\s*degree', query_lower)
         if angle_match:
             twist_angle = float(angle_match.group(1))
             logger.info(f"🌀 STRANDS: Extracted twist angle: {twist_angle}°")
         
-        spacing_match = re.search(r'(\d+\.?\d*)\s*[åa]', query_lower)
+        spacing_match = re.search(r'(\d+(?:\.\d+)?)\s*[åa]', query_lower)
         if spacing_match:
             interlayer_spacing = float(spacing_match.group(1))
             logger.info(f"🌀 STRANDS: Extracted interlayer spacing: {interlayer_spacing} Å")
@@ -1009,7 +1009,7 @@ Direct
             # GHZ circuits
             elif 'ghz' in query_lower:
                 # Extract number of qubits if specified
-                qubit_match = re.search(r'(\d+)\s*qubit', query_lower)
+                qubit_match = re.search(r'(\d{1,3})\s*qubit', query_lower)
                 num_qubits = int(qubit_match.group(1)) if qubit_match else 3
                 
                 logger.info(f"🌀 STRANDS: Creating {num_qubits}-qubit GHZ circuit with Braket MCP")
