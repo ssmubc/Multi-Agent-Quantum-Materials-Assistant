@@ -17,19 +17,23 @@ class MCPToolsWrapper:
     def search_material(self, formula: str) -> Dict[str, Any]:
         """Search for materials by formula using MCP"""
         try:
-            logger.info(f"🔍 MCP WRAPPER: Searching for {formula}")
+            # Sanitize formula for logging to prevent log injection
+            safe_formula = formula.replace('\n', '').replace('\r', '')[:50]
+            logger.info(f"🔍 MCP WRAPPER: Searching for {safe_formula}")
             # Call the MCP agent's search method which handles the MCP server call
             result = self.mp_agent.search(formula)
             
             if result and not result.get('error'):
-                logger.info(f"✅ MCP WRAPPER: Found materials for {formula}")
+                logger.info(f"✅ MCP WRAPPER: Found materials for {safe_formula}")
                 return {
                     "status": "success",
                     "data": result,
                     "mcp_action": "search_materials_by_formula"
                 }
             else:
-                logger.warning(f"⚠️ MCP WRAPPER: No materials found for {formula}")
+                # Sanitize formula for logging to prevent log injection
+                safe_formula = formula.replace('\n', '').replace('\r', '')[:50]
+                logger.warning(f"⚠️ MCP WRAPPER: No materials found for {safe_formula}")
                 return {
                     "status": "not_found",
                     "message": f"No materials found for {formula}",
@@ -125,7 +129,9 @@ class MCPToolsWrapper:
     def create_supercell(self, material_id: str, scaling_matrix: Optional[list] = None) -> Dict[str, Any]:
         """Create supercell using MCP"""
         try:
-            logger.info(f"🏗️ MCP WRAPPER: Creating supercell for {material_id}")
+            # Sanitize material_id for logging to prevent log injection
+            safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+            logger.info(f"🏗️ MCP WRAPPER: Creating supercell for {safe_material_id}")
             
             # Ensure material is loaded first
             select_result = self.mp_agent.select_material_by_id(material_id)
@@ -143,7 +149,9 @@ class MCPToolsWrapper:
             
             result = self.mp_agent.build_supercell(structure_uri, {"scaling_matrix": scaling_matrix})
             
-            logger.info(f"✅ MCP WRAPPER: Created supercell for {material_id}")
+            # Sanitize material_id for logging to prevent log injection
+            safe_material_id = material_id.replace('\n', '').replace('\r', '')[:50]
+            logger.info(f"✅ MCP WRAPPER: Created supercell for {safe_material_id}")
             return {
                 "status": "success",
                 "data": result,
