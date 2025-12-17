@@ -19,7 +19,7 @@ def get_mp_api_key(secret_name: str = "materials-project/api-key", region_name: 
         API key string or None if not found
     """
     # Audit log secret access
-    logger.info(f"Accessing secret {secret_name} from region {region_name} at {time.time()}")
+    logger.info(f"Accessing secret from region {region_name} at {time.time()}")
     
     try:
         # Create Secrets Manager client
@@ -45,7 +45,7 @@ def get_mp_api_key(secret_name: str = "materials-project/api-key", region_name: 
                 # If not JSON, assume it's a plain string
                 return secret.strip()
         
-        logger.warning(f"No SecretString found in secret {secret_name}")
+        logger.warning("No SecretString found in secret")
         return None
         
     except ClientError as e:
@@ -59,7 +59,7 @@ def get_mp_api_key(secret_name: str = "materials-project/api-key", region_name: 
         elif error_code == 'InvalidRequestException':
             logger.error("Invalid request to Secrets Manager")
         elif error_code == 'ResourceNotFoundException':
-            logger.error(f"Secret {secret_name} not found in Secrets Manager")
+            logger.error("Secret not found in Secrets Manager")
         else:
             logger.error(f"Unexpected error retrieving secret: {e}")
         return None
@@ -94,7 +94,7 @@ def store_mp_api_key(api_key: str, secret_name: str = "materials-project/api-key
                 Description="Materials Project API Key for Quantum Matter App",
                 SecretString=secret_value
             )
-            logger.info(f"Created new secret {secret_name}")
+            logger.info("Secret created successfully")
             return True
             
         except ClientError as e:
@@ -104,7 +104,7 @@ def store_mp_api_key(api_key: str, secret_name: str = "materials-project/api-key
                     SecretId=secret_name,
                     SecretString=secret_value
                 )
-                logger.info(f"Updated existing secret {secret_name}")
+                logger.info("Secret updated successfully")
                 return True
             else:
                 raise e
